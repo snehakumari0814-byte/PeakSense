@@ -6,6 +6,7 @@ import { OrbitControls } from "@react-three/drei";
 import { Vector3 } from "three";
 import type { OrbitControls as OrbitControlsImpl } from "three-stdlib";
 import type { Locality } from "@/types/locality";
+import type { ForecastResponse } from "@/types/forecast";
 import { localityScenePosition } from "@/lib/twinLayout";
 import { buildEnergyNetwork } from "@/lib/energyNetwork";
 import LocalityZone from "@/components/twin/LocalityZone";
@@ -87,6 +88,7 @@ function CameraRig({
 
 function Scene({
   localities,
+  forecasts,
   selectedId,
   layers,
   onSelect,
@@ -95,6 +97,7 @@ function Scene({
   controlsRef,
 }: {
   localities: Locality[];
+  forecasts?: Record<string, ForecastResponse>;
   selectedId: string | null;
   layers: Record<LayerKey, boolean>;
   onSelect: (id: string) => void;
@@ -102,7 +105,10 @@ function Scene({
   resetToken: number;
   controlsRef: React.RefObject<OrbitControlsImpl | null>;
 }) {
-  const edges = useMemo(() => buildEnergyNetwork(localities), [localities]);
+  const edges = useMemo(
+    () => buildEnergyNetwork(localities, forecasts),
+    [localities, forecasts],
+  );
 
   return (
     <>
@@ -130,6 +136,7 @@ function Scene({
         <LocalityZone
           key={locality.id}
           locality={locality}
+          forecast={forecasts?.[locality.id]}
           position={localityScenePosition(locality)}
           selected={locality.id === selectedId}
           showRiskHeat={layers.riskHeat}
@@ -155,11 +162,15 @@ function Scene({
 
 export default function MumbaiDigitalTwin({
   localities,
+  forecasts,
+  backendStatus = "live",
   selectedId,
   onSelect,
   onReset,
 }: {
   localities: Locality[];
+  forecasts?: Record<string, ForecastResponse>;
+  backendStatus?: "live" | "fallback" | "checking";
   selectedId: string | null;
   onSelect: (id: string) => void;
   onReset: () => void;
@@ -198,6 +209,7 @@ export default function MumbaiDigitalTwin({
       <Canvas shadows camera={{ position: [0, 195, 245], fov: 42, near: 1, far: 1400 }}>
         <Scene
           localities={localities}
+          forecasts={forecasts}
           selectedId={selectedId}
           layers={layers}
           onSelect={onSelect}
@@ -207,7 +219,12 @@ export default function MumbaiDigitalTwin({
         />
       </Canvas>
 
-      <TwinControls layers={layers} onToggleLayer={handleToggleLayer} onReset={handleReset} />
+      <TwinControls
+        layers={layers}
+        backendStatus={backendStatus}
+        onToggleLayer={handleToggleLayer}
+        onReset={handleReset}
+      />
       <ViewportControls
         onZoomIn={() => zoomBy(ZOOM_FACTOR)}
         onZoomOut={() => zoomBy(1 / ZOOM_FACTOR)}

@@ -1,31 +1,59 @@
 "use client";
 
-import { RotateCcw } from "lucide-react";
+import { Activity, AlertTriangle, RotateCcw } from "lucide-react";
 import { RISK_COLORS, RISK_LABELS, type RiskLevel } from "@/lib/risk";
 
 const LEGEND_ORDER: RiskLevel[] = ["LOW", "MEDIUM", "HIGH", "CRITICAL"];
 
 export type LayerKey = "flow" | "riskHeat" | "demand" | "solar";
 
-const LAYER_OPTIONS: { key: LayerKey; label: string }[] = [
-  { key: "flow", label: "Electricity Flow" },
-  { key: "riskHeat", label: "Risk Heat" },
-  { key: "demand", label: "Demand Intensity" },
-  { key: "solar", label: "Solar Potential" },
+const LAYER_OPTIONS: { key: LayerKey; label: string; subtext: string }[] = [
+  { key: "flow", label: "Electricity Flow", subtext: "Stylized demand-flow visualization" },
+  { key: "riskHeat", label: "Risk Heat", subtext: "Live ML forecast risk" },
+  { key: "demand", label: "Demand Intensity", subtext: "Live baseline demand MW" },
+  { key: "solar", label: "Solar Potential", subtext: "Prototype context layer" },
 ];
 
 export default function TwinControls({
   layers,
+  backendStatus = "live",
   onToggleLayer,
   onReset,
 }: {
   layers: Record<LayerKey, boolean>;
+  backendStatus?: "live" | "fallback" | "checking";
   onToggleLayer: (key: LayerKey) => void;
   onReset: () => void;
 }) {
   return (
     <>
-      <div className="pointer-events-auto absolute left-4 top-4 flex flex-col gap-3">
+      <div className="pointer-events-auto absolute left-4 top-4 flex flex-col gap-2.5">
+        {/* Live Status Badge */}
+        <div className="flex items-center gap-2 rounded-lg border border-slate-800 bg-slate-950/90 px-3 py-2 backdrop-blur-sm">
+          {backendStatus === "live" && (
+            <div className="flex items-center gap-1.5 text-xs font-semibold text-emerald-400">
+              <span className="relative flex h-2 w-2">
+                <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-75" />
+                <span className="relative inline-flex h-2 w-2 rounded-full bg-emerald-500" />
+              </span>
+              <span>LIVE MODEL</span>
+            </div>
+          )}
+          {backendStatus === "fallback" && (
+            <div className="flex items-center gap-1.5 text-xs font-semibold text-amber-400">
+              <AlertTriangle className="h-3 w-3" />
+              <span>DEMO FALLBACK</span>
+            </div>
+          )}
+          {backendStatus === "checking" && (
+            <div className="flex items-center gap-1.5 text-xs font-semibold text-slate-400">
+              <Activity className="h-3 w-3 animate-pulse" />
+              <span>CHECKING API…</span>
+            </div>
+          )}
+        </div>
+
+        {/* Peak Risk Legend */}
         <div className="flex flex-col gap-2 rounded-lg border border-slate-800 bg-slate-950/85 px-3 py-2.5 backdrop-blur-sm">
           <span className="text-[10px] font-medium uppercase tracking-wide text-slate-500">
             Peak risk legend
@@ -43,23 +71,27 @@ export default function TwinControls({
           </div>
         </div>
 
+        {/* Grid View Layer Toggles */}
         <div className="flex flex-col gap-2 rounded-lg border border-slate-800 bg-slate-950/85 px-3 py-2.5 backdrop-blur-sm">
           <span className="text-[10px] font-medium uppercase tracking-wide text-slate-500">
-            Grid view
+            Grid view layers
           </span>
-          <div className="flex flex-col gap-1.5">
+          <div className="flex flex-col gap-2">
             {LAYER_OPTIONS.map((opt) => (
               <label
                 key={opt.key}
-                className="flex cursor-pointer select-none items-center gap-2 text-xs text-slate-300"
+                className="flex cursor-pointer select-none items-start gap-2 text-xs text-slate-300"
               >
                 <input
                   type="checkbox"
                   checked={layers[opt.key]}
                   onChange={() => onToggleLayer(opt.key)}
-                  className="h-3.5 w-3.5 rounded border-slate-600 bg-slate-800 accent-emerald-500"
+                  className="mt-0.5 h-3.5 w-3.5 rounded border-slate-600 bg-slate-800 accent-emerald-500"
                 />
-                {opt.label}
+                <div className="flex flex-col">
+                  <span>{opt.label}</span>
+                  <span className="text-[10px] text-slate-500">{opt.subtext}</span>
+                </div>
               </label>
             ))}
           </div>

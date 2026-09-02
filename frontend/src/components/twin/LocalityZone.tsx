@@ -4,9 +4,10 @@ import { useRef, useState } from "react";
 import { useFrame } from "@react-three/fiber";
 import type { Group } from "three";
 import type { Locality } from "@/types/locality";
+import type { ForecastResponse } from "@/types/forecast";
 import type { ScenePosition } from "@/lib/twinLayout";
 import { ZONE_RADIUS } from "@/lib/twinLayout";
-import { demandRatio, riskLevel, RISK_COLORS } from "@/lib/risk";
+import { demandRatio, riskLevel, RISK_COLORS, type RiskLevel } from "@/lib/risk";
 import BuildingCluster from "@/components/twin/BuildingCluster";
 import LocalityOverlay from "@/components/twin/LocalityOverlay";
 import RiskGlow from "@/components/twin/RiskGlow";
@@ -17,6 +18,7 @@ const BASELINE_HEIGHT_RATIO = 0.4;
 
 export default function LocalityZone({
   locality,
+  forecast,
   position,
   selected,
   showRiskHeat,
@@ -25,6 +27,7 @@ export default function LocalityZone({
   onSelect,
 }: {
   locality: Locality;
+  forecast?: ForecastResponse;
   position: ScenePosition;
   selected: boolean;
   showRiskHeat: boolean;
@@ -35,8 +38,12 @@ export default function LocalityZone({
   const groupRef = useRef<Group>(null);
   const [hovered, setHovered] = useState(false);
 
-  const risk = riskLevel(locality);
-  const ratio = demandRatio(locality);
+  // Live risk from ML forecast endpoint (falls back to ratio calculation if forecast is not yet loaded)
+  const risk: RiskLevel = forecast?.peakAnalysis?.risk ?? riskLevel(locality);
+  const currentDemand = forecast?.summary?.currentLoadMw ?? locality.current_demand_mw;
+  const peakThreshold = forecast?.peakAnalysis?.thresholdMw ?? locality.peak_threshold_mw;
+  const ratio = peakThreshold > 0 ? currentDemand / peakThreshold : demandRatio(locality);
+
   const riskColor = RISK_COLORS[risk];
   const buildingColor = showRiskHeat ? riskColor : NEUTRAL_COLOR;
   const density = locality.residential_share + locality.commercial_share;

@@ -13,6 +13,7 @@
  */
 
 import type { Locality } from "@/types/locality";
+import type { ForecastResponse } from "@/types/forecast";
 import { localityScenePosition, type ScenePosition } from "@/lib/twinLayout";
 import { demandRatio } from "@/lib/risk";
 
@@ -38,7 +39,17 @@ function edgeKey(i: number, j: number): string {
   return i < j ? `${i}-${j}` : `${j}-${i}`;
 }
 
-export function buildEnergyNetwork(localities: Locality[]): NetworkEdge[] {
+function getEndpointRatio(locality: Locality, forecast?: ForecastResponse): number {
+  if (!locality.peak_threshold_mw || locality.peak_threshold_mw <= 0) return 0;
+  const demand = forecast?.summary.currentLoadMw ?? locality.current_demand_mw;
+  const threshold = forecast?.peakAnalysis.thresholdMw ?? locality.peak_threshold_mw;
+  return demand / threshold;
+}
+
+export function buildEnergyNetwork(
+  localities: Locality[],
+  forecasts?: Record<string, ForecastResponse>,
+): NetworkEdge[] {
   if (localities.length < 2) return [];
 
   const positions = localities.map((l) => localityScenePosition(l));
@@ -98,13 +109,15 @@ export function buildEnergyNetwork(localities: Locality[]): NetworkEdge[] {
   return pairs.map(([i, j]) => {
     const a = localities[i];
     const b = localities[j];
+    const ratioA = getEndpointRatio(a, forecasts?.[a.id]);
+    const ratioB = getEndpointRatio(b, forecasts?.[b.id]);
     return {
       id: `${a.id}--${b.id}`,
       fromId: a.id,
       toId: b.id,
       from: positions[i],
       to: positions[j],
-      intensity: Math.min(1.15, (demandRatio(a) + demandRatio(b)) / 2),
+      intensity: Math.min(1.15, (ratioA + ratioB) / 2),
     };
   });
 }
