@@ -27,7 +27,13 @@ function Stat({
   );
 }
 
-export default function BaselinePeak({ baseline }: { baseline: BaselinePeakData }) {
+export default function BaselinePeak({
+  baseline,
+  isLive,
+}: {
+  baseline: BaselinePeakData;
+  isLive: boolean;
+}) {
   const riskColor = RISK_COLORS[baseline.risk];
 
   return (
@@ -36,7 +42,11 @@ export default function BaselinePeak({ baseline }: { baseline: BaselinePeakData 
         <h2 className="text-sm font-semibold uppercase tracking-wide text-white">
           Predicted Baseline
         </h2>
-        <DemoDataBadge label="Demo" />
+        {isLive ? (
+          <DemoDataBadge variant="live" label="Model · Live" />
+        ) : (
+          <DemoDataBadge variant="fallback" label="Demo Fallback" />
+        )}
       </div>
       <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
         <Stat icon={Gauge} label="Predicted peak" value={`${baseline.peakMw} MW`} />

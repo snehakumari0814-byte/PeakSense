@@ -177,3 +177,26 @@ export type ApiForecastInputsResponse = {
   disclaimer: string;
   is_demo_fallback: boolean;
 };
+
+// ─── Recommendations ──────────────────────────────────────────────────────────
+
+/** One ranked recommendation from GET /api/recommendations */
+export type ApiRecommendationItem = {
+  intervention: string;
+  title: string;
+  reason: string;
+  scenario_percentage: number;
+  estimated_reduction_mw: number;
+  rank: number;
+};
+
+/** Response from GET /api/recommendations */
+export type ApiRecommendationsResponse = {
+  locality_id: string;
+  locality_name: string;
+  horizon: string;
+  recommendations: ApiRecommendationItem[];
+  scenario_note: string;
+  method: string;
+  is_demo_fallback: boolean;
+};

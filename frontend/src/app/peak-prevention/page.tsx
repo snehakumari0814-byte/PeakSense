@@ -16,6 +16,7 @@ import {
   fetchForecast,
   fetchForecastSeries,
   fetchExplanation,
+  fetchRecommendations,
   postSimulate,
 } from "@/lib/api";
 import {
@@ -24,7 +25,7 @@ import {
 } from "@/lib/prevention";
 import type { Locality } from "@/types/locality";
 import type { ExplanationData } from "@/types/forecast";
-import type { PreventionData } from "@/types/prevention";
+import type { PreventionData, Recommendation } from "@/types/prevention";
 import type { SimulationResult } from "@/types/simulator";
 
 type BackendStatus = "checking" | "live" | "fallback";
@@ -108,14 +109,17 @@ export default function PeakPreventionPage() {
         fetchForecastSeries(selectedLocality.id, "1h", selectedLocality.peak_threshold_mw),
       ]);
 
-      // Step 2: Fetch SHAP explanation + default scenario simulation in parallel
-      // These are independent of each other and can fail independently
+      // Step 2: Fetch SHAP explanation + default scenario simulation +
+      // backend recommendations in parallel. These are independent of each
+      // other and can fail independently.
       let explanationData: ExplanationData | null = null;
       let simulationData: SimulationResult | null = null;
+      let recommendationsData: Recommendation[] | null = null;
 
-      const [explResult, simResult] = await Promise.allSettled([
+      const [explResult, simResult, recResult] = await Promise.allSettled([
         fetchExplanation(selectedLocality.id, "1h"),
         postSimulate(selectedLocality.id, "1h", DEFAULT_PREVENTION_INTERVENTIONS),
+        fetchRecommendations(selectedLocality.id, "1h"),
       ]);
 
       if (explResult.status === "fulfilled") {
@@ -130,6 +134,10 @@ export default function PeakPreventionPage() {
         simulationData = simResult.value.data;
       }
 
+      if (recResult.status === "fulfilled" && !recResult.value.isDemoFallback) {
+        recommendationsData = recResult.value.data;
+      }
+
       // Step 3: Build prevention data from all real sources
       const data = buildPreventionFromForecast(
         selectedLocality,
@@ -137,6 +145,7 @@ export default function PeakPreventionPage() {
         seriesResult.data,
         explanationData,
         simulationData,
+        recommendationsData,
       );
 
       setPrevention(data);
@@ -246,7 +255,7 @@ export default function PeakPreventionPage() {
 
         {listState === "ready" && preventionState === "ready" && prevention && (
           <>
-            <PeakRiskOverview data={prevention} />
+            <PeakRiskOverview data={prevention} isLive={isLive} />
 
             {/* SHAP explanation — same source as Forecast page */}
             <AIExplanation

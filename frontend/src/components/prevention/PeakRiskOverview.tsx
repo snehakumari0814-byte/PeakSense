@@ -12,7 +12,13 @@ function Stat({ label, value }: { label: string; value: string }) {
   );
 }
 
-export default function PeakRiskOverview({ data }: { data: PreventionData }) {
+export default function PeakRiskOverview({
+  data,
+  isLive,
+}: {
+  data: PreventionData;
+  isLive: boolean;
+}) {
   const color = RISK_COLORS[data.risk];
   const exceeds = data.exceedanceMw >= 0;
 
@@ -26,7 +32,11 @@ export default function PeakRiskOverview({ data }: { data: PreventionData }) {
           <ShieldAlert className="h-3.5 w-3.5" />
           Peak Risk
         </span>
-        <DemoDataBadge />
+        {isLive ? (
+          <DemoDataBadge variant="live" label="Model · Live" />
+        ) : (
+          <DemoDataBadge variant="fallback" label="Demo Fallback" />
+        )}
       </div>
 
       <p className="mt-1 text-3xl font-bold" style={{ color }}>

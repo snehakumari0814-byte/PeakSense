@@ -2,10 +2,11 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.routers import forecast, localities, explanation, simulation, forecast_inputs
+from app.routers import forecast, localities, explanation, simulation, forecast_inputs, recommendations
 from app.services.forecasting import ForecastEngine
 from app.services.explanation import ExplanationEngine
 from app.services.simulation import SimulationService
+from app.services.recommendations import RecommendationEngine
 
 
 @asynccontextmanager
@@ -16,6 +17,8 @@ async def lifespan(app: FastAPI):
     ExplanationEngine.get_instance()
     # Warm up simulation service (uses ForecastEngine singleton)
     SimulationService.get_instance()
+    # Warm up recommendation engine (uses ExplanationEngine + SimulationService)
+    RecommendationEngine.get_instance()
     yield
 
 
@@ -45,3 +48,4 @@ app.include_router(forecast.router)
 app.include_router(forecast_inputs.router)
 app.include_router(explanation.router)
 app.include_router(simulation.router)
+app.include_router(recommendations.router)

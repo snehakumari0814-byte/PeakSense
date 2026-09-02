@@ -384,6 +384,7 @@ export function buildPreventionFromForecast(
   series: ForecastSeries,
   explanation: ExplanationData | null = null,
   simulation: SimulationResult | null = null,
+  apiRecommendations: Recommendation[] | null = null,
 ): PreventionData {
   const { peakAnalysis, summary } = forecast;
 
@@ -394,14 +395,21 @@ export function buildPreventionFromForecast(
     : buildDriversFallback(locality);
 
   // ── Recommendations ───────────────────────────────────────────────────────
+  // Prefer the real backend GET /api/recommendations engine (SHAP category
+  // mapping + real SimulationService, ranked server-side). Fall back to the
+  // equivalent client-side heuristic (still real SHAP + real simulation
+  // numbers) if that endpoint is unavailable, then to the seeded mock.
   const hasRealSim = simulation && !simulation.isDemoData;
-  const recommendations: Recommendation[] = hasRealShap
-    ? buildRecommendationsFromDrivers(
-        explanation.drivers,
-        hasRealSim ? simulation : null,
-        locality.solar_capacity_mw,
-      )
-    : buildRecommendationsFallback(locality, `${locality.id}:prevention:recs`);
+  const recommendations: Recommendation[] =
+    apiRecommendations && apiRecommendations.length > 0
+      ? apiRecommendations
+      : hasRealShap
+        ? buildRecommendationsFromDrivers(
+            explanation.drivers,
+            hasRealSim ? simulation : null,
+            locality.solar_capacity_mw,
+          )
+        : buildRecommendationsFallback(locality, `${locality.id}:prevention:recs`);
 
   // ── Explanation text ───────────────────────────────────────────────────────
   // Use SHAP summary if available; otherwise construct from forecast values

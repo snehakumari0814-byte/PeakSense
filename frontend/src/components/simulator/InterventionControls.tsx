@@ -33,7 +33,10 @@ export default function InterventionControls({
         <h2 className="text-sm font-semibold uppercase tracking-wide text-white">
           Intervention Controls
         </h2>
-        <DemoDataBadge label="Demo" />
+        <span className="inline-flex items-center gap-1 rounded-full border border-cyan-500/30 bg-cyan-500/10 px-2 py-0.5 text-[11px] font-medium text-cyan-400">
+          <SlidersHorizontal className="h-3 w-3" />
+          Scenario Inputs
+        </span>
       </div>
 
       <div className="flex flex-col gap-4">

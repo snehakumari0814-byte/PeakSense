@@ -291,7 +291,7 @@ export default function SimulatorPage() {
           <>
             {/* Baseline section — always show from baseForecast if available */}
             {displayResult && (
-              <BaselinePeak baseline={displayResult.baseline} />
+              <BaselinePeak baseline={displayResult.baseline} isLive={!displayResult.isDemoData} />
             )}
             {!displayResult && backendStatus === "checking" && (
               <div className="flex items-center gap-2 rounded-lg border border-slate-800 bg-slate-900/50 p-8 text-sm text-slate-500">

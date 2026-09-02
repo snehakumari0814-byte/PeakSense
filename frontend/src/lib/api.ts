@@ -31,7 +31,9 @@ import type {
   ApiSimulationResponse,
   ApiScenarioSeriesPoint,
   ApiForecastInputsResponse,
+  ApiRecommendationsResponse,
 } from "@/types/api-types";
+import type { Recommendation } from "@/types/prevention";
 import type { ForecastInputs, ForecastInputFeatureItem } from "@/types/forecast";
 import type {
   InterventionBreakdownItem,
@@ -194,6 +196,65 @@ function adaptModelMetrics(api: ApiModelMetricsResponse): ModelAccuracy {
     "15m": extractHorizon(METRIC_KEY_MAP["15m"]),
     "1h": extractHorizon(METRIC_KEY_MAP["1h"]),
     "24h": extractHorizon(METRIC_KEY_MAP["24h"]),
+  };
+}
+
+// ─── Adapter: ApiRecommendationsResponse → Recommendation[] ──────────────────
+
+const RECOMMENDATION_ID_MAP: Record<string, string> = {
+  cooling_shift: "cooling-load-shifting",
+  commercial_shift: "commercial-demand-response",
+  flexible_load: "flexible-load-scheduling",
+  solar_utilization: "solar-utilization",
+};
+
+const RECOMMENDATION_DESCRIPTIONS: Record<string, string> = {
+  cooling_shift: "Shift flexible cooling loads before the predicted peak.",
+  commercial_shift: "Reduce discretionary commercial load during the peak window.",
+  flexible_load: "Move non-critical flexible consumption outside the peak window.",
+  solar_utilization: "Maximize local solar contribution before the evening solar decline.",
+};
+
+function adaptRecommendations(api: ApiRecommendationsResponse): Recommendation[] {
+  // Backend already returns items ranked (rank 1..N) — preserve that order.
+  return [...api.recommendations]
+    .sort((a, b) => a.rank - b.rank)
+    .map((r) => ({
+      id: RECOMMENDATION_ID_MAP[r.intervention] ?? r.intervention,
+      title: r.title,
+      description: RECOMMENDATION_DESCRIPTIONS[r.intervention] ?? r.reason,
+      simulatedReductionMw: r.estimated_reduction_mw,
+      driverBasis: r.reason,
+    }));
+}
+
+/**
+ * GET /api/recommendations — ranked, model-informed demand-response
+ * recommendations. Built server-side from real SHAP drivers + the real
+ * SimulationService (same engine as POST /api/simulate) — no client-side
+ * ranking or reduction math.
+ *
+ * Throws ApiError on network or HTTP failure.
+ */
+export async function fetchRecommendations(
+  localityId: string,
+  horizon: import("@/types/forecast").ForecastHorizon,
+): Promise<{ data: Recommendation[]; isDemoFallback: boolean }> {
+  const backendHorizon = toBackendHorizon(horizon);
+  const url = `${API_BASE_URL}/api/recommendations?locality_id=${encodeURIComponent(localityId)}&horizon=${encodeURIComponent(backendHorizon)}`;
+
+  const res = await fetch(url);
+  if (!res.ok) {
+    throw new ApiError(
+      `Recommendations fetch failed: ${res.status} ${res.statusText}`,
+      res.status,
+    );
+  }
+
+  const raw: ApiRecommendationsResponse = await res.json();
+  return {
+    data: adaptRecommendations(raw),
+    isDemoFallback: raw.is_demo_fallback,
   };
 }
 
