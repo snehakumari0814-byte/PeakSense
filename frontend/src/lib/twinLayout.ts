@@ -33,5 +33,5 @@ export function localityScenePosition(locality: Locality): ScenePosition {
   return [x, 0, z];
 }
 
-export const GROUND_SIZE = 340;
+export const GROUND_SIZE = 420;
 export const ZONE_RADIUS = 16;

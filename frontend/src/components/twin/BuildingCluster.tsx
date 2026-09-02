@@ -34,17 +34,22 @@ export default function BuildingCluster({
 }) {
   const buildings = useMemo<BuildingSpec[]>(() => {
     const rng = createRng(seed);
-    const count = Math.round(6 + Math.min(1, density) * 10);
+    const count = Math.round(8 + Math.min(1, density) * 12);
     const maxHeight = 6 + Math.min(1.3, heightRatio) * 16;
     const specs: BuildingSpec[] = [];
 
     for (let i = 0; i < count; i++) {
       const angle = rng() * Math.PI * 2;
-      const dist = Math.sqrt(rng()) * (radius * 0.72);
-      const width = 1.4 + rng() * 1.6;
-      const depth = 1.4 + rng() * 1.6;
-      const variance = 0.55 + rng() * 0.55;
-      const height = Math.max(1.5, maxHeight * variance);
+      const dist = Math.sqrt(rng()) * (radius * 0.74);
+      const width = 1.1 + rng() * 2.1;
+      const depth = 1.1 + rng() * 2.1;
+
+      // Mix short/medium/tall structures instead of one continuous curve,
+      // so the cluster reads as a varied skyline rather than uniform blocks.
+      const tier = rng();
+      const tierVariance = tier < 0.35 ? 0.28 + rng() * 0.22 : tier < 0.75 ? 0.55 + rng() * 0.3 : 0.9 + rng() * 0.35;
+      const height = Math.max(1.5, maxHeight * tierVariance);
+
       specs.push({
         x: Math.cos(angle) * dist,
         z: Math.sin(angle) * dist,

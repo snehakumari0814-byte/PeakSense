@@ -8,23 +8,28 @@ import type { ScenePosition } from "@/lib/twinLayout";
 import { ZONE_RADIUS } from "@/lib/twinLayout";
 import { demandRatio, riskLevel, RISK_COLORS } from "@/lib/risk";
 import BuildingCluster from "@/components/twin/BuildingCluster";
-import EnergyFlow from "@/components/twin/EnergyFlow";
 import LocalityOverlay from "@/components/twin/LocalityOverlay";
+import RiskGlow from "@/components/twin/RiskGlow";
 
 const NEUTRAL_COLOR = "#64748b";
 const SOLAR_COLOR = "#fbbf24";
+const BASELINE_HEIGHT_RATIO = 0.4;
 
 export default function LocalityZone({
   locality,
   position,
   selected,
-  showRisk,
+  showRiskHeat,
+  showDemand,
+  showSolar,
   onSelect,
 }: {
   locality: Locality;
   position: ScenePosition;
   selected: boolean;
-  showRisk: boolean;
+  showRiskHeat: boolean;
+  showDemand: boolean;
+  showSolar: boolean;
   onSelect: () => void;
 }) {
   const groupRef = useRef<Group>(null);
@@ -33,9 +38,9 @@ export default function LocalityZone({
   const risk = riskLevel(locality);
   const ratio = demandRatio(locality);
   const riskColor = RISK_COLORS[risk];
-  const buildingColor = showRisk ? riskColor : NEUTRAL_COLOR;
+  const buildingColor = showRiskHeat ? riskColor : NEUTRAL_COLOR;
   const density = locality.residential_share + locality.commercial_share;
-  const hasSolar = locality.solar_capacity_mw >= 2;
+  const hasSolar = showSolar && locality.solar_capacity_mw >= 2;
 
   useFrame(() => {
     const group = groupRef.current;
@@ -69,7 +74,18 @@ export default function LocalityZone({
         <meshStandardMaterial color="#0f172a" roughness={0.9} metalness={0.05} />
       </mesh>
 
+      {showRiskHeat && <RiskGlow color={riskColor} pulse={risk === "CRITICAL"} />}
+
       {/* Boundary ring — explicitly stylized, not an official zone boundary */}
+      <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.015, 0]}>
+        <ringGeometry args={[ZONE_RADIUS - 1.4, ZONE_RADIUS, 64]} />
+        <meshBasicMaterial
+          color={selected ? "#34d399" : buildingColor}
+          transparent
+          opacity={selected ? 0.18 : 0.12}
+          depthWrite={false}
+        />
+      </mesh>
       <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.02, 0]}>
         <ringGeometry args={[ZONE_RADIUS - 0.4, ZONE_RADIUS, 64]} />
         <meshBasicMaterial
@@ -79,13 +95,11 @@ export default function LocalityZone({
         />
       </mesh>
 
-      {showRisk && <EnergyFlow radius={ZONE_RADIUS} color={riskColor} intensity={Math.min(1, ratio)} />}
-
       <BuildingCluster
         seed={locality.id}
         radius={ZONE_RADIUS}
         density={density}
-        heightRatio={ratio}
+        heightRatio={showDemand ? ratio : BASELINE_HEIGHT_RATIO}
         color={buildingColor}
       />
 
@@ -106,7 +120,7 @@ export default function LocalityZone({
           risk={risk}
           color={riskColor}
           selected={selected}
-          showRisk={showRisk}
+          showRisk={showRiskHeat}
         />
       </group>
     </group>

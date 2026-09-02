@@ -4,6 +4,14 @@
  * These localities are PROTOTYPE zones for the hackathon demo and all
  * numeric fields are DEMO/SEEDED values from the backend — not official
  * electricity-grid boundaries or real utility measurements.
+ *
+ * Forward compatibility: this type mirrors the backend's Locality model
+ * exactly (no frontend-only duplicate fields). When the backend adds
+ * forecasting fields (e.g. forecast_15min_mw, forecast_1hour_mw,
+ * forecast_24hour_peak_mw, peak_time, peak_risk, probability, confidence,
+ * solar_generation_mw, net_demand_mw), add them here and to
+ * `buildMetrics()` in LocalityInfoPanel — the 3D scene, risk logic, and
+ * panel layout do not need to be redesigned to surface new fields.
  */
 
 export type DemandProfile =
