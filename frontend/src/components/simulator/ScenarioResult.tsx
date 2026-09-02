@@ -26,12 +26,17 @@ function PeakCard({
 
 export default function ScenarioResult({ result }: { result: SimulationResult }) {
   const { baseline, scenario, reductionMw, reductionPct } = result;
+  const isLive = !result.isDemoData;
 
   return (
     <div className="rounded-lg border border-slate-800 bg-slate-900/50 p-5">
       <div className="mb-4 flex items-center justify-between">
         <h2 className="text-sm font-semibold uppercase tracking-wide text-white">Before / After</h2>
-        <DemoDataBadge />
+        {isLive ? (
+          <DemoDataBadge variant="live" label="Model · Live" />
+        ) : (
+          <DemoDataBadge variant="fallback" label="Demo Fallback" />
+        )}
       </div>
 
       <div className="flex flex-col items-stretch gap-3 sm:flex-row sm:items-center">
@@ -60,7 +65,9 @@ export default function ScenarioResult({ result }: { result: SimulationResult })
       )}
 
       <p className="mt-3 text-center text-[11px] text-slate-600">
-        Prototype scenario estimate — not a validated grid response.
+        {isLive
+          ? "Demand-response scenario estimate — not a validated physical grid simulation."
+          : "Prototype scenario estimate — not a validated grid response."}
       </p>
     </div>
   );

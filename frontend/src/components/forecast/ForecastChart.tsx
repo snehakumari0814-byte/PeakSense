@@ -45,7 +45,7 @@ function ForecastTooltip({
   );
 }
 
-export default function ForecastChart({ series }: { series: ForecastSeries }) {
+export default function ForecastChart({ series, isLive }: { series: ForecastSeries; isLive?: boolean }) {
   const chartData = series.points.map((p) => ({
     time: p.time,
     timestamp: p.timestamp,
@@ -60,7 +60,7 @@ export default function ForecastChart({ series }: { series: ForecastSeries }) {
     <div className="rounded-lg border border-slate-800 bg-slate-900/50 p-4">
       <div className="mb-3 flex items-center justify-between">
         <h2 className="text-sm font-semibold text-white">Demand Forecast</h2>
-        <DemoDataBadge />
+        <DemoDataBadge variant={isLive ? "live" : "fallback"} label={isLive ? "Live" : "Fallback"} />
       </div>
 
       <div className="h-80 w-full">

@@ -44,6 +44,7 @@ function ChartTooltip({
 }
 
 export default function ScenarioChart({ result }: { result: SimulationResult }) {
+  const isLive = !result.isDemoData;
   const chartData = result.series.map((p) => ({
     time: p.time,
     timestamp: p.timestamp,
@@ -64,7 +65,11 @@ export default function ScenarioChart({ result }: { result: SimulationResult }) 
     <div className="rounded-lg border border-slate-800 bg-slate-900/50 p-4">
       <div className="mb-3 flex items-center justify-between">
         <h2 className="text-sm font-semibold text-white">Scenario Chart</h2>
-        <DemoDataBadge />
+        {isLive ? (
+          <DemoDataBadge variant="live" label="Model · Live" />
+        ) : (
+          <DemoDataBadge variant="fallback" label="Demo Fallback" />
+        )}
       </div>
 
       <div className="h-80 w-full">

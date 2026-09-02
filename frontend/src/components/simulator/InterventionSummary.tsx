@@ -4,17 +4,25 @@ import DemoDataBadge from "@/components/DemoDataBadge";
 export default function InterventionSummary({
   breakdown,
   totalReductionMw,
+  isDemoData,
 }: {
   breakdown: InterventionBreakdownItem[];
   totalReductionMw: number;
+  isDemoData: boolean;
 }) {
+  const isLive = !isDemoData;
+
   return (
     <div className="rounded-lg border border-slate-800 bg-slate-900/50 p-4">
       <div className="mb-3 flex items-center justify-between">
         <h2 className="text-sm font-semibold uppercase tracking-wide text-white">
           Intervention Summary
         </h2>
-        <DemoDataBadge label="Demo" />
+        {isLive ? (
+          <DemoDataBadge variant="live" label="Model · Live" />
+        ) : (
+          <DemoDataBadge variant="fallback" label="Demo Fallback" />
+        )}
       </div>
 
       <div className="flex flex-col gap-1.5">
@@ -43,7 +51,9 @@ export default function InterventionSummary({
       </div>
 
       <p className="mt-3 text-[11px] leading-relaxed text-slate-600">
-        All values are prototype estimates, not measured or validated load reductions.
+        {isLive
+          ? "Reduction values are backend-calculated scenario estimates using documented demand-response coefficients — not measured or validated load reductions."
+          : "All values are prototype estimates, not measured or validated load reductions."}
       </p>
     </div>
   );

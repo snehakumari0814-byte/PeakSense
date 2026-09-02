@@ -176,13 +176,42 @@ export function mockForecast(locality: Locality, horizon: ForecastHorizon): Fore
 
   const solarPeakFactor = Math.max(0, gaussianBump(now.getHours(), 13, 3.5));
   const inputs: ForecastInputs = {
-    temperatureC: Math.round(28 + rng() * 9),
-    humidityPct: Math.round(55 + rng() * 30),
-    hour: formatTime(now),
-    day: formatDay(now),
-    isHoliday: rng() > 0.92,
-    previousDemandMw: Math.round(locality.current_demand_mw * (0.88 + rng() * 0.15) * 10) / 10,
-    solarGenerationMw: Math.round(locality.solar_capacity_mw * solarPeakFactor * 10) / 10,
+    features: [
+      {
+        feature: "temperature_c",
+        label: "Ambient temperature",
+        value: Math.round(28 + rng() * 9),
+        unit: "°C",
+        source: "fixed_assumption",
+        source_note: "Mock value — backend offline. Real values come from GET /api/forecast/inputs.",
+      },
+      {
+        feature: "relative_humidity_percent",
+        label: "Relative humidity",
+        value: 78.0,
+        unit: "%",
+        source: "fixed_assumption",
+        source_note: "Mock value — backend offline.",
+      },
+      {
+        feature: "lag_1",
+        label: "Previous demand (lag-1)",
+        value: Math.round(locality.current_demand_mw * (0.88 + rng() * 0.15) * 10) / 10,
+        unit: "MW",
+        source: "fixed_assumption",
+        source_note: "Mock value — backend offline.",
+      },
+      {
+        feature: "solar_irradiance",
+        label: "Solar irradiance",
+        value: Math.round(locality.solar_capacity_mw * solarPeakFactor * 100) / 100,
+        unit: "W/m²",
+        source: "fixed_assumption",
+        source_note: "Mock value — backend offline.",
+      },
+    ],
+    peakHour: now.getHours(),
+    disclaimer: "Mock fallback values — backend offline. Not real model inputs.",
   };
 
   const drivers: string[] = [];

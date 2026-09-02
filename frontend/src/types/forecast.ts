@@ -1,21 +1,17 @@
 /**
  * Types for the PeakSense Forecast page.
  *
- * IMPORTANT: There is no ML forecasting backend yet. Every value described
- * here as "mock" or "demo" is produced by the local adapter in
- * `src/lib/forecast.ts`, not a real model. Fields that already come from
- * the real locality API (current demand, peak threshold, risk) are passed
- * straight through from `Locality` / `riskLevel()` rather than re-invented,
- * so this page never maintains a second copy of real backend data.
+ * Phase 7: Real ML backend is now integrated.
+ * - fetchForecast(), fetchForecastSeries(), fetchModelAccuracy() in lib/api.ts
+ *   return these normalized types from the FastAPI backend.
+ * - Mock functions in lib/forecast.ts are preserved as demo fallback only.
+ * - isDemoData is `boolean` — false when data comes from the real ML model,
+ *   true when the mock fallback is used (e.g. backend offline).
  *
- * Forward compatibility: these shapes are designed to match three future
- * backend endpoints —
- *   GET /api/forecast          -> ForecastResponse (minus `series`)
+ * Backend endpoints:
+ *   GET /api/forecast          -> ForecastResponse (minus inputs/insight)
  *   GET /api/forecast/series   -> ForecastSeries
  *   GET /api/model-metrics     -> ModelAccuracy
- * — so `mockForecast()` / `mockForecastSeries()` / `mockModelAccuracy()`
- * in lib/forecast.ts can be swapped for real `fetch` calls without
- * changing any component.
  */
 
 import type { RiskLevel } from "@/lib/risk";
@@ -70,15 +66,33 @@ export type PeakAnalysis = {
   peakProbabilityPct: number;
 };
 
-/** Model input features. Placeholders until the ML backend supplies real values. */
+export type ForecastInputSource =
+  | "historical_lag"
+  | "model_computed"
+  | "fixed_assumption"
+  | "calendar";
+
+/**
+ * A single model input feature with its actual value and source provenance.
+ * source_note explains honestly how the value was obtained.
+ */
+export type ForecastInputFeatureItem = {
+  feature: string;
+  label: string;
+  value: number;
+  unit: string;
+  source: ForecastInputSource;
+  source_note: string;
+};
+
+/** Model input features for the Forecast Inputs panel. */
 export type ForecastInputs = {
-  temperatureC: number;
-  humidityPct: number;
-  hour: string;
-  day: string;
-  isHoliday: boolean;
-  previousDemandMw: number;
-  solarGenerationMw: number;
+  /** The actual feature values returned by GET /api/forecast/inputs */
+  features: ForecastInputFeatureItem[];
+  /** Hour (0–23) of the predicted peak step */
+  peakHour: number;
+  /** Provenance disclaimer from the backend */
+  disclaimer: string;
 };
 
 export type AIInsight = {
@@ -101,6 +115,45 @@ export type ForecastResponse = {
   peakAnalysis: PeakAnalysis;
   inputs: ForecastInputs;
   insight: AIInsight;
-  /** True for the mock adapter; a real API response would omit or set this false. */
-  isDemoData: true;
+  /** True when data comes from mock/fallback; false when real ML backend responded. */
+  isDemoData: boolean;
+};
+
+/**
+ * One SHAP feature contribution (normalized, camelCase frontend type).
+ * shap_value_mw is in BULK Mumbai MW (the model's native output unit),
+ * not per-locality MW. The UI must communicate this clearly.
+ */
+export type FeatureDriver = {
+  feature: string;
+  label: string;
+  /** SHAP contribution in bulk Mumbai MW. Positive = pushes prediction up. */
+  shapValueMw: number;
+  direction: "increase" | "decrease";
+  /** Actual input value that the model received for this feature */
+  featureValue: number;
+  category: "temporal" | "lag" | "rolling" | "weather" | "solar" | "other";
+};
+
+/**
+ * Full SHAP explanation bundle for one locality+horizon.
+ * Returned by GET /api/explanation.
+ * Mathematical identity: predictionMw ≈ baseValueMw + sum(driver.shapValueMw)
+ */
+export type ExplanationData = {
+  localityId: string;
+  localityName: string;
+  horizon: ForecastHorizon;
+  /** Bulk Mumbai model prediction (MW) for the peak point */
+  predictionMw: number;
+  /** Locality-scaled peak demand prediction (MW) */
+  localityPredictionMw: number;
+  /** SHAP expected model output (average training prediction, MW) */
+  baseValueMw: number;
+  /** Top-N SHAP contributors sorted by |shapValueMw| descending */
+  drivers: FeatureDriver[];
+  /** Deterministic summary derived from SHAP values — no LLM */
+  summary: string;
+  method: "SHAP_TreeExplainer";
+  isDemoFallback: boolean;
 };

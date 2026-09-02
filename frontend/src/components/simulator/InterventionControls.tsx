@@ -1,8 +1,7 @@
 "use client";
 
-import { Loader2, Play, RotateCcw } from "lucide-react";
+import { Loader2, Play, RotateCcw, SlidersHorizontal } from "lucide-react";
 import type { InterventionSettings } from "@/types/simulator";
-import DemoDataBadge from "@/components/DemoDataBadge";
 
 type SliderKey = keyof InterventionSettings;
 

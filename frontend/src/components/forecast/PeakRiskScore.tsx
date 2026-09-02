@@ -1,8 +1,9 @@
 import { ShieldAlert } from "lucide-react";
 import type { PeakAnalysis } from "@/types/forecast";
 import { RISK_COLORS, RISK_LABELS } from "@/lib/risk";
+import DemoDataBadge from "@/components/DemoDataBadge";
 
-export default function PeakRiskScore({ analysis }: { analysis: PeakAnalysis }) {
+export default function PeakRiskScore({ analysis, isLive }: { analysis: PeakAnalysis; isLive?: boolean }) {
   const color = RISK_COLORS[analysis.risk];
   const pct = Math.max(0, Math.min(100, analysis.peakProbabilityPct));
 
@@ -16,6 +17,10 @@ export default function PeakRiskScore({ analysis }: { analysis: PeakAnalysis }) 
           <ShieldAlert className="h-3.5 w-3.5" />
           Peak Risk
         </span>
+        <DemoDataBadge
+          variant={isLive ? "live" : "fallback"}
+          label={isLive ? "Live" : "Fallback"}
+        />
       </div>
 
       <p className="mt-1 text-2xl font-bold" style={{ color }}>

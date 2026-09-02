@@ -1,32 +1,29 @@
 /**
- * Mock What-If Simulator adapter — PROTOTYPE / DEMO SCENARIO ESTIMATE ONLY.
+ * PeakSense What-If Simulator adapter — PROTOTYPE / DEMO SCENARIO ESTIMATE ONLY.
  *
- * The baseline forecast (predicted peak, threshold, risk, series) is read
- * from the same `mockForecast()` / `mockForecastSeries()` adapter used by
- * the Forecast and Peak Prevention pages — this module never invents a
- * second forecast dataset. It only applies a transparent, deterministic
- * demand-response formula on top of that baseline:
+ * Phase 7 update: The baseline forecast can now accept a real ForecastResponse
+ * from the ML backend (passed in by the simulator page) instead of calling
+ * mockForecast() internally. This ensures there is only ONE forecast source
+ * across Forecast, Peak Prevention, and Simulator pages.
  *
- *   scenario peak = baseline peak
- *                    - cooling reduction
- *                    - commercial reduction
- *                    - flexible-load reduction
- *                    - solar contribution
+ * Strategy:
+ *   simulateScenario(locality, interventions, baseForecast?, baseSeries?)
+ *   - If baseForecast + baseSeries are provided → use real ML baseline
+ *   - If not provided → fall back to mockForecast() / mockForecastSeries()
  *
- * All coefficients live in `INTERVENTION_COEFFICIENTS` below — nothing is
- * scattered into components. This is NOT a physical grid simulation; it is
- * a scenario estimate for demonstrating demand-response ideas.
+ * The scenario CALCULATION (demand-response formula) remains a prototype.
+ * All coefficients live in INTERVENTION_COEFFICIENTS — nothing scattered in components.
+ * This is NOT a physical grid simulation; it is a scenario estimate for hackathon demo.
  *
- * Swap-out plan for when the backend exists:
- *   simulateScenario(locality, interventions) -> POST /api/simulate
- * (same request shape as `interventions`, same response shape as
- * `SimulationResult` minus `isDemoData`) — components call this function
- * today and a real `fetch` wrapper tomorrow, unchanged.
+ * Swap-out plan for when a real simulation backend exists:
+ *   simulateScenario(locality, interventions) → POST /api/simulate
+ * (same return shape as SimulationResult minus `isDemoData`) — unchanged call sites.
  */
 
 import type { Locality } from "@/types/locality";
 import { RISK_THRESHOLDS, type RiskLevel } from "@/lib/risk";
 import { mockForecast, mockForecastSeries } from "@/lib/forecast";
+import type { ForecastResponse, ForecastSeries } from "@/types/forecast";
 import type {
   InterventionBreakdownItem,
   InterventionSettings,
@@ -46,9 +43,9 @@ const FORECAST_HORIZON = "1h" as const;
  * the locality's actual installed capacity.
  */
 export const INTERVENTION_COEFFICIENTS = {
-  coolingShift: 0.24, // slider 0.5 -> 12% of baseline peak
-  commercialShift: 0.2, // slider 0.5 -> 10% of baseline peak
-  flexibleLoad: 0.16, // slider 0.5 -> 8% of baseline peak
+  coolingShift: 0.24,    // slider 0.5 → 12% of baseline peak
+  commercialShift: 0.2,  // slider 0.5 → 10% of baseline peak
+  flexibleLoad: 0.16,    // slider 0.5 →  8% of baseline peak
 } as const;
 
 function riskFromRatio(ratio: number): RiskLevel {
@@ -65,15 +62,20 @@ function round1(v: number): number {
 export function simulateScenario(
   locality: Locality,
   interventions: InterventionSettings,
+  baseForecast?: ForecastResponse,
+  baseSeries?: ForecastSeries,
 ): SimulationResult {
-  const forecast = mockForecast(locality, FORECAST_HORIZON);
-  const series = mockForecastSeries(locality, FORECAST_HORIZON);
+  // Use real ML baseline if provided; otherwise fall back to mocks
+  const forecast = baseForecast ?? mockForecast(locality, FORECAST_HORIZON);
+  const series = baseSeries ?? mockForecastSeries(locality, FORECAST_HORIZON);
+
   const { peakAnalysis, summary } = forecast;
 
   const baselinePeakMw = peakAnalysis.predictedPeakMw;
   const thresholdMw = peakAnalysis.thresholdMw;
 
-  const coolingReductionMw = interventions.coolingShift * INTERVENTION_COEFFICIENTS.coolingShift * baselinePeakMw;
+  const coolingReductionMw =
+    interventions.coolingShift * INTERVENTION_COEFFICIENTS.coolingShift * baselinePeakMw;
   const commercialReductionMw =
     interventions.commercialShift * INTERVENTION_COEFFICIENTS.commercialShift * baselinePeakMw;
   const flexibleReductionMw =
@@ -100,11 +102,19 @@ export function simulateScenario(
 
   const scenarioSeries: ScenarioSeriesPoint[] = series.points.map((point) => {
     const isFuture = point.predictedMw !== null;
-    const simulatedMw = isFuture && point.predictedMw !== null
-      ? round1(Math.max(0, point.predictedMw - (point.predictedMw / baselinePeakMw) * reductionMw))
-      : null;
+    const simulatedMw =
+      isFuture && point.predictedMw !== null
+        ? round1(
+            Math.max(
+              0,
+              point.predictedMw - (point.predictedMw / baselinePeakMw) * reductionMw,
+            ),
+          )
+        : null;
     return {
-      timestamp: point.timestamp,
+      // Convert number timestamp to string to satisfy ScenarioSeriesPoint type.
+      // The chart uses `time` (HH:MM) for the X-axis; timestamp is metadata only.
+      timestamp: String(point.timestamp),
       time: point.time,
       baselineMw: point.actualMw ?? point.predictedMw,
       simulatedMw: isFuture ? simulatedMw : (point.actualMw ?? null),

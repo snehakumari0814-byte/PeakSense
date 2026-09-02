@@ -1,28 +1,33 @@
 /**
  * Types for the PeakSense Peak Prevention page.
  *
- * IMPORTANT: There is no explanation/recommendation ML backend yet. Every
- * value here is produced by the local adapter in `src/lib/prevention.ts`,
- * which itself reuses `mockForecast()` / `mockForecastSeries()` from
- * `src/lib/forecast.ts` for the underlying peak numbers — this page does
- * NOT maintain a second, independent forecast dataset. Only the
- * prevention-specific pieces (driver contributions, explanation text,
- * recommendations, timeline, reduction opportunity) are invented here.
+ * Phase 9C: All fields are now live-capable from the real ML backend.
  *
- * Forward compatibility: shaped to match two future backend endpoints —
- *   GET /api/explanation     -> { locality_id, peak_time, risk, drivers, explanation }
- *   GET /api/recommendations -> { locality_id, recommendations }
- * — so `mockPreventionData()` can be replaced by real `fetch` calls without
- * changing any component. See the JSDoc on `PreventionData` for the exact
- * future response shape this maps to.
+ * Forward references:
+ *   PeakDriver.shapValueMw   — from GET /api/explanation (SHAP TreeExplainer)
+ *   Recommendation.simulatedReductionMw — from POST /api/simulate
+ *   PeakReduction.isDemoData — false when POST /api/simulate was used
+ *   TimelineEvent            — derived from ForecastSeries real timestamps
  */
 
 import type { RiskLevel } from "@/lib/risk";
 
 export type PeakDriver = {
   name: string;
-  /** 0-100. Demo contribution percentage, not real feature importance. */
+  /**
+   * Normalized model contribution share (0–100).
+   * Formula: |shap_value| / sum(|all_shap_values|) × 100
+   * NOT a load percentage — a model contribution share.
+   */
   contributionPct: number;
+  /**
+   * Raw SHAP value in bulk Mumbai MW (the model's native unit).
+   * Null when derived from mock/fallback.
+   */
+  shapValueMw: number | null;
+  direction: "increase" | "decrease";
+  /** Feature category from the SHAP explanation engine */
+  category: string;
 };
 
 export type RecommendationImpact = {
@@ -35,7 +40,15 @@ export type Recommendation = {
   id: string;
   title: string;
   description: string;
-  impact: RecommendationImpact;
+  /**
+   * Simulation-backed reduction estimate from POST /api/simulate.
+   * Null when simulation is unavailable (fallback).
+   */
+  simulatedReductionMw: number | null;
+  /** Short explanation of why this intervention was prioritized. */
+  driverBasis: string;
+  /** Only present for fallback mock recommendations. */
+  impact?: RecommendationImpact;
 };
 
 export type TimelineEvent = {
@@ -50,20 +63,22 @@ export type PeakReduction = {
   baselinePeakMw: number;
   potentialReductionMw: number;
   potentialPeakMw: number;
+  /** True when values come from the mock fallback, not a real simulation */
+  isDemoData: boolean;
+  /** Human-readable description of the scenario used */
+  scenarioDescription: string;
 };
 
 /**
  * Full prevention bundle for one locality.
  *
- * Future response shape (see GET /api/explanation + GET /api/recommendations):
- * {
- *   "locality_id": "andheri",
- *   "peak_time": "20:02",
- *   "risk": "CRITICAL",
- *   "drivers": [{ "name": "Cooling demand", "contribution": 0.38 }],
- *   "explanation": "...",
- *   "recommendations": [{ "action": "...", "estimated_reduction_mw": 10 }]
- * }
+ * Phase 9C live sources:
+ *   peak time/MW/threshold/risk/probability — GET /api/forecast (ForecastEngine)
+ *   explanation text                        — GET /api/explanation (SHAP)
+ *   drivers (SHAP contributors)             — GET /api/explanation (SHAP)
+ *   recommendations                         — SHAP category mapping + POST /api/simulate
+ *   timeline                                — ForecastSeries real timestamps
+ *   reduction opportunity                   — POST /api/simulate (moderate scenario)
  */
 export type PreventionData = {
   localityId: string;
@@ -79,6 +94,9 @@ export type PreventionData = {
   recommendations: Recommendation[];
   timeline: TimelineEvent[];
   reduction: PeakReduction;
-  /** True for the mock adapter; a real API response would omit or set this false. */
-  isDemoData: true;
+  /**
+   * True only when ALL sections are mock-derived.
+   * False when real backend data is available for at least core fields.
+   */
+  isDemoData: boolean;
 };

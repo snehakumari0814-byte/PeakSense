@@ -2,14 +2,20 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.routers import forecast, localities
+from app.routers import forecast, localities, explanation, simulation, forecast_inputs
 from app.services.forecasting import ForecastEngine
+from app.services.explanation import ExplanationEngine
+from app.services.simulation import SimulationService
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Warm up model artifacts into memory on startup
     ForecastEngine.get_instance()
+    # Warm up SHAP explainer (builds TreeExplainer from model once)
+    ExplanationEngine.get_instance()
+    # Warm up simulation service (uses ForecastEngine singleton)
+    SimulationService.get_instance()
     yield
 
 
@@ -36,5 +42,6 @@ def health():
 
 app.include_router(localities.router)
 app.include_router(forecast.router)
-
-
+app.include_router(forecast_inputs.router)
+app.include_router(explanation.router)
+app.include_router(simulation.router)

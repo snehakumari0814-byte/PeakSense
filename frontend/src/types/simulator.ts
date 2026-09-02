@@ -1,20 +1,15 @@
 /**
  * Types for the PeakSense What-If Simulator.
  *
- * This is a demand-response SCENARIO simulator, not a physical electrical
- * grid simulator. The baseline forecast is read from the same mock
- * forecast adapter used by the Forecast and Peak Prevention pages
- * (`lib/forecast.ts`) — this page never maintains a second forecast
- * dataset. Only the intervention math (how much each slider shaves off
- * the baseline) lives in `lib/simulator.ts`.
+ * Phase 9 update: POST /api/simulate now powers the real simulation.
+ * The backend uses the same ForecastEngine for the baseline — no duplicate forecast.
+ * Frontend sends InterventionSettings → receives SimulationResult via the API adapter.
  *
- * Forward compatibility: shaped to match a future
- *   POST /api/simulate
- * endpoint —
- *   request:  { locality_id, interventions: { cooling_shift, commercial_shift, flexible_load, solar_utilization } }
- *   response: { baseline_peak_mw, scenario_peak_mw, reduction_mw, reduction_percent, baseline_risk, scenario_risk, peak_avoided }
- * — so `simulateScenario()` in lib/simulator.ts can be swapped for a real
- * `fetch` call without changing any component.
+ * simulateScenario() in lib/simulator.ts → POST /api/simulate (live) or local
+ * math (fallback). The return type is SimulationResult in both cases.
+ *
+ * IMPORTANT: This is a demand-response SCENARIO simulator, not a physical
+ * electrical grid simulator. Results are scenario estimates, not measured outcomes.
  */
 
 import type { RiskLevel } from "@/lib/risk";
@@ -35,7 +30,8 @@ export const DEFAULT_INTERVENTIONS: InterventionSettings = {
 };
 
 export type ScenarioSeriesPoint = {
-  timestamp: number;
+  /** ISO 8601 timestamp string from backend (e.g. "2026-09-02T21:24:00+05:30") */
+  timestamp: string;
   time: string;
   baselineMw: number | null;
   simulatedMw: number | null;
@@ -69,6 +65,9 @@ export type SimulationResult = {
   reductionPct: number;
   breakdown: InterventionBreakdownItem[];
   series: ScenarioSeriesPoint[];
-  /** True for the mock adapter; a real API response would omit or set this false. */
-  isDemoData: true;
+  /**
+   * True when this result comes from the local mock fallback.
+   * False when it comes from POST /api/simulate (live backend).
+   */
+  isDemoData: boolean;
 };

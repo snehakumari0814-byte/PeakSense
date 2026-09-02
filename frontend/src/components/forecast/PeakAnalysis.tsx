@@ -27,7 +27,7 @@ function Row({
   );
 }
 
-export default function PeakAnalysis({ analysis }: { analysis: PeakAnalysisData }) {
+export default function PeakAnalysis({ analysis, isLive }: { analysis: PeakAnalysisData; isLive?: boolean }) {
   const riskColor = RISK_COLORS[analysis.risk];
   const exceeds = analysis.exceedanceMw >= 0;
 
@@ -35,7 +35,7 @@ export default function PeakAnalysis({ analysis }: { analysis: PeakAnalysisData 
     <div className="flex h-full flex-col gap-1 rounded-lg border border-slate-800 bg-slate-900/50 p-4">
       <div className="mb-1 flex items-center justify-between">
         <h2 className="text-sm font-semibold text-white">Peak Analysis</h2>
-        <DemoDataBadge label="Demo" />
+        <DemoDataBadge variant={isLive ? "live" : "fallback"} label={isLive ? "Live" : "Fallback"} />
       </div>
 
       <Row icon={Gauge} label="Predicted peak" value={`${analysis.predictedPeakMw} MW`} />
