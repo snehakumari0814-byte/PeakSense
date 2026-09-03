@@ -39,6 +39,10 @@ class ExplanationResponse(BaseModel):
     locality_id: str = Field(description="Locality slug identifier")
     locality_name: str = Field(description="Display name of the locality")
     horizon: str = Field(description="Forecast horizon ('15min', '1h', '24h')")
+    date: str = Field(
+        default="",
+        description="Calendar date (YYYY-MM-DD, Asia/Kolkata) this explanation corresponds to",
+    )
     prediction_mw: float = Field(
         description="Model predicted bulk Mumbai demand (MW) for the peak point"
     )

@@ -10,10 +10,12 @@ These are NOT externally measured real-time weather values. See the
 ForecastInputsResponse disclaimer and per-feature source_note fields.
 """
 
+from typing import Optional
 from fastapi import APIRouter, HTTPException, Query
 
 from app.schemas.forecast_inputs import ForecastInputsResponse
 from app.services.explanation import ExplanationEngine
+from app.services.forecasting import DateUnavailableError
 
 router = APIRouter(prefix="/api/forecast", tags=["forecast-inputs"])
 
@@ -34,11 +36,22 @@ async def get_forecast_inputs(
         default="1h",
         description="Forecast horizon: '15min', '1h', or '24h'",
     ),
+    date: Optional[str] = Query(
+        None,
+        description=(
+            "Calendar date (YYYY-MM-DD, Asia/Kolkata) these input features should correspond "
+            "to. Defaults to today's backend reference date if omitted."
+        ),
+    ),
 ) -> ForecastInputsResponse:
     try:
         engine = ExplanationEngine.get_instance()
-        return engine.get_forecast_inputs(locality_id=locality_id, horizon=horizon)
+        return engine.get_forecast_inputs(locality_id=locality_id, horizon=horizon, date=date)
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except DateUnavailableError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"Forecast inputs failed: {exc}") from exc

@@ -7,7 +7,7 @@ prediction intervals, and peak strain indicators.
 """
 
 from pathlib import Path
-from datetime import datetime, timedelta
+from datetime import date as date_cls, datetime, timedelta
 from typing import Dict, List, Optional, Tuple
 import joblib
 import numpy as np
@@ -30,6 +30,20 @@ BASE_DIR = Path(__file__).resolve().parents[2]
 MODEL_PATH = BASE_DIR / "ml" / "models" / "mumbai_demand_model.joblib"
 DATA_PATH = BASE_DIR / "data" / "processed" / "mumbai_demand_features.csv"
 
+# Representative bulk-Mumbai baseline used to scale the model's city-wide
+# prediction down to a single locality (see _map_to_locality).
+CITY_BASELINE_MW = 3100.0
+
+# Recursive/autoregressive multi-step forecasts compound error the further
+# out they extrapolate. 7 days is a deliberately conservative, documented
+# reliability boundary — not an arbitrary technical wall.
+MAX_FUTURE_DAYS = 7
+
+
+class DateUnavailableError(Exception):
+    """Raised when a requested forecast date cannot be genuinely served
+    (no historical data for a past date, or beyond the future forecast cap)."""
+
 
 class ForecastEngine:
     _instance: Optional["ForecastEngine"] = None
@@ -41,6 +55,8 @@ class ForecastEngine:
         self.metrics = {}
         self.prediction_interval_info = {}
         self.history_df = None
+        self.history_min_date: Optional[date_cls] = None
+        self.history_max_date: Optional[date_cls] = None
         self._load_model()
         self._load_history()
 
@@ -70,11 +86,176 @@ class ForecastEngine:
         if DATA_PATH.exists():
             try:
                 self.history_df = pd.read_csv(DATA_PATH)
-                self.history_df["timestamp"] = pd.to_datetime(self.history_df["timestamp"])
+                # CSV timestamps carry a +05:30 (Asia/Kolkata) offset. The rest of
+                # this service (datetime.now(), timedelta arithmetic) uses naive
+                # datetimes on the assumption that server-local time == IST
+                # (verified: this host's local timezone is IST) — so drop the tz
+                # here to get naive IST wall-clock datetimes consistent with that.
+                self.history_df["timestamp"] = pd.to_datetime(
+                    self.history_df["timestamp"], utc=False
+                ).dt.tz_localize(None)
                 self.history_df = self.history_df.sort_values("timestamp").reset_index(drop=True)
+                dates = self.history_df["timestamp"].dt.date
+                self.history_min_date = dates.min()
+                self.history_max_date = dates.max()
             except Exception as e:
                 print(f"Warning: Failed to load history: {e}")
                 self.history_df = None
+
+    def get_reference_date(self) -> date_cls:
+        """
+        The backend's current/reference calendar date.
+
+        The server runs with local time = Asia/Kolkata (verified: `date` /
+        `time.tzname` on this host report IST), so naive `datetime.now()`
+        already reflects IST wall-clock time. This matches the pre-existing
+        codebase convention (all timestamps assume local time == IST).
+        """
+        return datetime.now().date()
+
+    def _parse_date_param(self, date_str: Optional[str]) -> date_cls:
+        """Parse a 'YYYY-MM-DD' query param. None -> today's reference date."""
+        if date_str is None or date_str == "":
+            return self.get_reference_date()
+        try:
+            return datetime.strptime(date_str, "%Y-%m-%d").date()
+        except ValueError:
+            raise ValueError(
+                f"Invalid date '{date_str}'. Expected format YYYY-MM-DD."
+            )
+
+    def get_availability(self) -> Dict:
+        """
+        Genuine, data-derived date-availability summary.
+
+        The dataset has a real 4-day gap between the last historical
+        observation (history_max_date) and today's reference date, so
+        availability is two disjoint ranges, not one continuous span —
+        we report both honestly rather than inventing coverage.
+        """
+        reference_date = self.get_reference_date()
+        max_future_date = reference_date + timedelta(days=MAX_FUTURE_DAYS)
+
+        historical_range = None
+        if self.history_min_date is not None and self.history_max_date is not None:
+            historical_range = {
+                "start": self.history_min_date.isoformat(),
+                "end": self.history_max_date.isoformat(),
+            }
+
+        forecastable_range = {
+            "start": reference_date.isoformat(),
+            "end": max_future_date.isoformat(),
+        }
+
+        overall_min = self.history_min_date if self.history_min_date is not None else reference_date
+
+        return {
+            "reference_date": reference_date.isoformat(),
+            "historical_range": historical_range,
+            "forecastable_range": forecastable_range,
+            "min_date": overall_min.isoformat(),
+            "max_date": max_future_date.isoformat(),
+        }
+
+    def _bulk_points_from_history_rows(self, rows: pd.DataFrame) -> List[Dict]:
+        """
+        Genuine historical backtest: reuse the precomputed, leakage-safe
+        feature columns already stored for each row (see preprocessing.py —
+        lags via shift(N), rolling stats via shift(1).rolling(...)) and run
+        them through the real trained model. No fabrication: every feature
+        value is either an actual historical measurement or a value derived
+        exclusively from earlier chronological observations.
+        """
+        obs_name_map = {0: "night_minimum", 1: "morning_peak", 2: "day_peak", 3: "evening_peak"}
+        points: List[Dict] = []
+        for _, row in rows.iterrows():
+            feat_dict = {col: float(row[col]) for col in self.feature_columns}
+            feat_df = pd.DataFrame([feat_dict])[self.feature_columns]
+            pred_mw = float(self.model.predict(feat_df)[0])
+            points.append({
+                "timestamp": row["timestamp"].to_pydatetime(),
+                "predicted_mw": pred_mw,
+                "hour": int(row["hour"]),
+                "observation_type": obs_name_map.get(int(row.get("observation_type_encoded", 1)), "slot"),
+                "solar_irradiance": float(row.get("solar_irradiance", 0.0)),
+                "temperature_c": float(row.get("temperature_c", 0.0)),
+                "feat_dict": feat_dict,
+            })
+        return points
+
+    def get_bulk_series_for_date(self, target_date: date_cls) -> Tuple[List[Dict], str]:
+        """
+        Resolve the genuine bulk-Mumbai model series that should back a
+        forecast for `target_date`, and the mode used to produce it:
+
+          - "current":    target_date == today. Identical to the pre-date-
+                           parameter behavior: autoregressive continuation
+                           anchored at `datetime.now()`.
+          - "historical": target_date is a real day inside the loaded
+                           history CSV (before today). True backtest —
+                           reuses that day's actual precomputed leakage-safe
+                           features, run through the real model. Never uses
+                           the target day's own demand_mw as a feature input
+                           (only shifted lag/rolling columns of earlier rows).
+          - "future":     target_date is after today, within MAX_FUTURE_DAYS.
+                           Autoregressive continuation from the real history
+                           tail through `datetime.now()`, extended far enough
+                           to cover target_date.
+
+        Raises DateUnavailableError for any date this backend cannot
+        genuinely serve (a past date with no historical data, or a future
+        date beyond the extrapolation cap) — never fabricates a fallback.
+        """
+        if self.model is None or self.history_df is None or len(self.history_df) < 28:
+            raise DateUnavailableError(
+                "Forecasting model or historical data failed to load; no genuine "
+                "forecast can be produced for any date."
+            )
+
+        reference_date = self.get_reference_date()
+
+        if target_date == reference_date:
+            now = datetime.now().replace(second=0, microsecond=0)
+            return self._generate_mumbai_raw_forecasts(now, steps=12), "current"
+
+        if target_date < reference_date:
+            hist_min, hist_max = self.history_min_date, self.history_max_date
+            if hist_min is not None and hist_min <= target_date <= hist_max:
+                day_rows = self.history_df[self.history_df["timestamp"].dt.date == target_date]
+                if day_rows.empty:
+                    raise DateUnavailableError(
+                        f"No historical observations recorded for {target_date.isoformat()}."
+                    )
+                # Bounding rows from the adjacent days give the interpolation
+                # in _map_to_locality a real anchor just outside the day edges.
+                before = self.history_df[self.history_df["timestamp"].dt.date < target_date].tail(1)
+                after = self.history_df[self.history_df["timestamp"].dt.date > target_date].head(1)
+                combined = pd.concat([before, day_rows, after]).sort_values("timestamp")
+                return self._bulk_points_from_history_rows(combined), "historical"
+
+            raise DateUnavailableError(
+                f"Forecast unavailable for {target_date.isoformat()}: no historical demand data "
+                f"exists for this date, and it is in the past so it cannot be forecast forward "
+                f"either. Genuinely supported historical range: "
+                f"{hist_min.isoformat() if hist_min else 'none'} to "
+                f"{hist_max.isoformat() if hist_max else 'none'}."
+            )
+
+        # target_date > reference_date
+        days_ahead = (target_date - reference_date).days
+        if days_ahead > MAX_FUTURE_DAYS:
+            raise DateUnavailableError(
+                f"Forecast unavailable for {target_date.isoformat()}: {days_ahead} days ahead of "
+                f"today exceeds the maximum supported forecast horizon of {MAX_FUTURE_DAYS} days. "
+                f"Beyond this window, recursive autoregressive forecast error compounds too much "
+                f"to be presented as a genuine prediction."
+            )
+        now = datetime.now().replace(second=0, microsecond=0)
+        # ~4 observation slots/day plus a buffer, so the requested date's
+        # slots (and one trailing slot for interpolation) are fully covered.
+        steps = min(80, (days_ahead + 2) * 4)
+        return self._generate_mumbai_raw_forecasts(now, steps=steps), "future"
 
     def _generate_mumbai_raw_forecasts(self, start_dt: datetime, steps: int = 12) -> List[Dict]:
         """
@@ -169,6 +350,7 @@ class ForecastEngine:
                 "observation_type": obs_name_map.get(next_hour, "slot"),
                 "solar_irradiance": solar_irr,
                 "temperature_c": temp_c,
+                "feat_dict": dict(feat_dict),
             })
 
             recent_demands.append(pred_mw)
@@ -201,18 +383,22 @@ class ForecastEngine:
         bulk_points: List[Dict],
         start_time: datetime,
         horizon_type: str,
+        anchor_to_current: bool = False,
     ) -> List[ForecastPoint]:
         """
         Digital Twin Locality Mapping:
-        Transforms bulk Mumbai load into locality-specific demand curve using:
-        - baseline current_demand_mw
-        - residential vs commercial diurnal profile weighting
-        - cooling sensitivity index
-        - rooftop solar capacity generation offset
+        Interpolates the real, sparse (~4/day) XGBoost bulk-Mumbai predictions
+        in `bulk_points` onto the locality's fine-grained output grid, scales
+        them to the locality via base_scale = current_demand_mw / CITY_BASELINE_MW,
+        then applies locality-specific physical refinements (cooling load,
+        rooftop solar offset) on top of that real model signal.
+
+        `bulk_points` is genuinely used here (previously this method silently
+        discarded it and generated a synthetic hour-of-day-only curve — a bug
+        fixed as part of adding date-awareness, since a curve independent of
+        `bulk_points` would also be independent of the requested date).
         """
-        # City-wide representative baseline is ~3000 MW
-        city_baseline = 3100.0
-        base_scale = locality.current_demand_mw / city_baseline
+        base_scale = locality.current_demand_mw / CITY_BASELINE_MW
 
         points: List[ForecastPoint] = []
         residual_std = self.prediction_interval_info.get("residual_std", 150.0)
@@ -232,6 +418,10 @@ class ForecastEngine:
             step_minutes = 60
             total_points = 24
 
+        bulk_sorted = sorted(bulk_points, key=lambda p: p["timestamp"]) if bulk_points else []
+        bulk_x = np.array([(p["timestamp"] - start_time).total_seconds() / 60.0 for p in bulk_sorted])
+        bulk_y = np.array([p["predicted_mw"] for p in bulk_sorted])
+
         curr_time = start_time
 
         for i in range(total_points):
@@ -239,35 +429,34 @@ class ForecastEngine:
             hour = t.hour
             minute = t.minute
             frac_hour = hour + minute / 60.0
+            x = (t - start_time).total_seconds() / 60.0
 
-            # 1. Commercial Diurnal Modulation (Peaks between 11:00 and 17:00)
-            comm_factor = 1.0 + 0.35 * np.exp(-((frac_hour - 14.5) ** 2) / 12.0)
+            # Real model signal: linearly interpolate the sparse bulk-Mumbai
+            # predictions onto this timestamp, then scale to the locality.
+            if len(bulk_x) >= 2:
+                interp_bulk_mw = float(np.interp(x, bulk_x, bulk_y))
+            elif len(bulk_x) == 1:
+                interp_bulk_mw = float(bulk_y[0])
+            else:
+                interp_bulk_mw = CITY_BASELINE_MW
+            scaled_mw = interp_bulk_mw * base_scale
 
-            # 2. Residential Diurnal Modulation (Morning 08h-10h & Evening 19h-22h)
-            res_morning = 0.20 * np.exp(-((frac_hour - 8.5) ** 2) / 3.0)
-            res_evening = 0.40 * np.exp(-((frac_hour - 20.5) ** 2) / 5.0)
-            res_factor = 1.0 + res_morning + res_evening
-
-            # Blend by locality shares
-            profile_mult = (
-                locality.commercial_share * comm_factor +
-                locality.residential_share * res_factor
-            )
-
-            # 3. Cooling load effect (afternoon thermal inertia)
+            # Locality-specific physical refinements on top of the real signal.
             ambient_temp = 27.0 + 6.0 * np.sin(np.pi * (frac_hour - 6) / 13) if 6 <= frac_hour <= 19 else 26.5
             cooling_offset = locality.cooling_sensitivity * max(0.0, ambient_temp - 26.0) * 8.0
-
-            # 4. Rooftop Solar Generation Offset
             solar_irr = max(0.0, 750.0 * np.sin(np.pi * (frac_hour - 6) / 12)) if 6 <= frac_hour <= 18 else 0.0
             solar_gen_mw = locality.solar_capacity_mw * (solar_irr / 800.0) * 0.85
 
-            # Combine into locality raw predicted demand
-            raw_loc_demand = (locality.current_demand_mw * profile_mult) + cooling_offset - solar_gen_mw
+            raw_loc_demand = scaled_mw + cooling_offset - solar_gen_mw
 
-            # Smooth anchor to match current_demand_mw at t=0
-            weight_anchor = max(0.0, 1.0 - (i * step_minutes / 180.0))
-            pred_mw = weight_anchor * locality.current_demand_mw + (1.0 - weight_anchor) * raw_loc_demand
+            if anchor_to_current:
+                # Smooth anchor to the live current_demand_mw snapshot at t=0,
+                # decaying to the pure model-driven curve — only meaningful
+                # when the requested date is today (mode == "current").
+                weight_anchor = max(0.0, 1.0 - (i * step_minutes / 180.0))
+                pred_mw = weight_anchor * locality.current_demand_mw + (1.0 - weight_anchor) * raw_loc_demand
+            else:
+                pred_mw = raw_loc_demand
             pred_mw = round(max(5.0, float(pred_mw)), 1)
 
             # Prediction intervals (90% bounds)
@@ -277,8 +466,9 @@ class ForecastEngine:
             # Timestamp in ISO 8601 with Asia/Kolkata +05:30 offset
             ts_iso = t.strftime("%Y-%m-%dT%H:%M:%S+05:30")
 
-            # For the first point, record actual_mw as current_demand_mw
-            actual_mw = locality.current_demand_mw if i == 0 else None
+            # For the first point of a "today" (current) series, record
+            # actual_mw as the live current_demand_mw snapshot.
+            actual_mw = locality.current_demand_mw if (anchor_to_current and i == 0) else None
 
             points.append(
                 ForecastPoint(
@@ -292,9 +482,12 @@ class ForecastEngine:
 
         return points
 
-    def get_forecast(self, locality_id: str, horizon: str = "24h") -> ForecastResponse:
+    def get_forecast(
+        self, locality_id: str, horizon: str = "24h", date: Optional[str] = None
+    ) -> ForecastResponse:
         """
-        Generate locality forecast summary and peak risk analysis.
+        Generate locality forecast summary and peak risk analysis for the
+        requested calendar date (defaults to today's reference date).
         """
         locality = LOCALITIES_BY_ID.get(locality_id)
         if locality is None:
@@ -307,13 +500,19 @@ class ForecastEngine:
         elif horizon in ["1h", "1hour"]:
             norm_horizon = "1h"
 
-        now = datetime.now().replace(second=0, microsecond=0)
+        target_date = self._parse_date_param(date)
+        bulk_forecasts, mode = self.get_bulk_series_for_date(target_date)
 
-        # Generate bulk forecast & locality mapped points
-        bulk_forecasts = self._generate_mumbai_raw_forecasts(now, steps=12)
-        points_24h = self._map_to_locality(locality, bulk_forecasts, now, horizon_type="24h")
-        points_1h = self._map_to_locality(locality, bulk_forecasts, now, horizon_type="1h")
-        points_15m = self._map_to_locality(locality, bulk_forecasts, now, horizon_type="15min")
+        if mode == "current":
+            grid_start = datetime.now().replace(second=0, microsecond=0)
+            anchor = True
+        else:
+            grid_start = datetime(target_date.year, target_date.month, target_date.day)
+            anchor = False
+
+        points_24h = self._map_to_locality(locality, bulk_forecasts, grid_start, "24h", anchor)
+        points_1h = self._map_to_locality(locality, bulk_forecasts, grid_start, "1h", anchor)
+        points_15m = self._map_to_locality(locality, bulk_forecasts, grid_start, "15min", anchor)
 
         # Extract horizon benchmark numbers
         fifteen_min_mw = points_15m[1].predicted_mw if len(points_15m) > 1 else locality.current_demand_mw
@@ -341,6 +540,8 @@ class ForecastEngine:
             locality_id=locality.id,
             locality_name=locality.name,
             current_demand_mw=locality.current_demand_mw,
+            date=target_date.isoformat(),
+            data_mode=mode,
             forecast=ForecastValues(
                 **{
                     "15min_mw": fifteen_min_mw,
@@ -353,9 +554,12 @@ class ForecastEngine:
             is_demo_fallback=False,
         )
 
-    def get_forecast_series(self, locality_id: str, horizon: str = "24h") -> ForecastSeriesResponse:
+    def get_forecast_series(
+        self, locality_id: str, horizon: str = "24h", date: Optional[str] = None
+    ) -> ForecastSeriesResponse:
         """
-        Generate time-series forecast points with prediction intervals for chart rendering.
+        Generate time-series forecast points with prediction intervals for
+        chart rendering, for the requested calendar date.
         """
         locality = LOCALITIES_BY_ID.get(locality_id)
         if locality is None:
@@ -367,14 +571,24 @@ class ForecastEngine:
         elif horizon in ["1h", "1hour"]:
             norm_horizon = "1h"
 
-        now = datetime.now().replace(second=0, microsecond=0)
-        bulk_forecasts = self._generate_mumbai_raw_forecasts(now, steps=12)
-        points = self._map_to_locality(locality, bulk_forecasts, now, horizon_type=norm_horizon)
+        target_date = self._parse_date_param(date)
+        bulk_forecasts, mode = self.get_bulk_series_for_date(target_date)
+
+        if mode == "current":
+            grid_start = datetime.now().replace(second=0, microsecond=0)
+            anchor = True
+        else:
+            grid_start = datetime(target_date.year, target_date.month, target_date.day)
+            anchor = False
+
+        points = self._map_to_locality(locality, bulk_forecasts, grid_start, norm_horizon, anchor)
 
         return ForecastSeriesResponse(
             locality_id=locality.id,
             horizon=norm_horizon,
             unit="MW",
+            date=target_date.isoformat(),
+            data_mode=mode,
             points=points,
             is_demo_fallback=False,
         )

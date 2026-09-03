@@ -1,12 +1,20 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useSearchParams } from "next/navigation";
 import { Zap, Sun, ChevronDown } from "lucide-react";
 import { navItems } from "@/lib/nav";
 
+// Routes that share locality/date selection — the query string is carried
+// across navigation between them so Forecast → Peak Prevention → Simulator
+// feels like one coherent view instead of independent pages.
+const DATE_AWARE_ROUTES = new Set(["/forecast", "/peak-prevention", "/simulator"]);
+
 export default function Sidebar() {
   const pathname = usePathname();
+  const searchParams = useSearchParams();
+
+  const carryQuery = DATE_AWARE_ROUTES.has(pathname) && searchParams.toString().length > 0;
 
   return (
     <aside className="flex h-full w-64 shrink-0 flex-col border-r border-slate-200 bg-white shadow-[1px_0_4px_rgba(0,0,0,0.02)]">
@@ -26,10 +34,14 @@ export default function Sidebar() {
         {navItems.map((item) => {
           const isActive = pathname === item.href;
           const Icon = item.icon;
+          const href =
+            carryQuery && DATE_AWARE_ROUTES.has(item.href)
+              ? `${item.href}?${searchParams.toString()}`
+              : item.href;
           return (
             <Link
               key={item.href}
-              href={item.href}
+              href={href}
               className={`flex items-center gap-3 rounded-lg px-3.5 py-2.5 text-sm font-medium transition-all ${
                 isActive
                   ? "bg-emerald-50/90 text-emerald-800 font-semibold shadow-xs"

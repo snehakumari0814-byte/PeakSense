@@ -23,6 +23,7 @@
 import type { Locality, DemandProfile } from "@/types/locality";
 import { demandRatio, riskLevel } from "@/lib/risk";
 import { createRng } from "@/lib/prng";
+import { getTodayDate } from "@/lib/date";
 import type {
   AccuracyMetric,
   AIInsight,
@@ -136,6 +137,9 @@ export function mockForecastSeries(locality: Locality, horizon: ForecastHorizon)
     thresholdMw: locality.peak_threshold_mw,
     peakTimestamp: peakPoint.timestamp,
     peakMw: peakPoint.predictedMw ?? peakPoint.actualMw ?? 0,
+    // Demo fallback only (backend unreachable) — client-local "today".
+    referenceDate: getTodayDate(),
+    dataMode: "current",
   };
 }
 
@@ -241,6 +245,8 @@ export function mockForecast(locality: Locality, horizon: ForecastHorizon): Fore
   return {
     localityId: locality.id,
     horizon,
+    date: getTodayDate(),
+    dataMode: "current",
     summary,
     peakAnalysis,
     inputs,

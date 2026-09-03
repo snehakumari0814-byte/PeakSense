@@ -2,9 +2,12 @@
 Pydantic Schemas for PeakSense Forecasting & Peak Detection APIs.
 """
 
-from typing import List, Optional, Dict
+from typing import List, Literal, Optional, Dict
 from enum import Enum
 from pydantic import BaseModel, Field, ConfigDict
+
+
+DataMode = Literal["historical", "current", "future"]
 
 
 class RiskLevel(str, Enum):
@@ -44,6 +47,14 @@ class ForecastResponse(BaseModel):
     locality_id: str = Field(description="Locality slug identifier, e.g. 'andheri'")
     locality_name: str = Field(description="Display name of the locality")
     current_demand_mw: float = Field(description="Current baseline demand in MW")
+    date: str = Field(description="Calendar date (YYYY-MM-DD, Asia/Kolkata) this forecast was generated for")
+    data_mode: DataMode = Field(
+        description=(
+            "How this forecast was produced: 'historical' = genuine backtest using real "
+            "stored features for a past date; 'current' = live autoregressive forecast for "
+            "today; 'future' = autoregressive extrapolation for a date ahead of today"
+        )
+    )
     forecast: ForecastValues = Field(description="Multi-horizon demand forecasts in MW")
     peak: PeakAnalysis = Field(description="Deterministic peak risk analysis")
     confidence: float = Field(description="Statistical model confidence score (0.0 - 1.0)")
@@ -62,8 +73,37 @@ class ForecastSeriesResponse(BaseModel):
     locality_id: str = Field(description="Locality slug identifier")
     horizon: str = Field(description="Forecast horizon requested ('15min', '1h', '24h')")
     unit: str = Field(default="MW", description="Measurement unit")
+    date: str = Field(description="Calendar date (YYYY-MM-DD, Asia/Kolkata) this series was generated for")
+    data_mode: DataMode = Field(
+        description="How this series was produced: 'historical', 'current', or 'future' (see ForecastResponse.data_mode)"
+    )
     points: List[ForecastPoint] = Field(description="Chronological forecast time-series points")
     is_demo_fallback: bool = Field(default=False, description="Flag indicating if demo fallback was used")
+
+
+class DateRange(BaseModel):
+    start: str = Field(description="Range start date (YYYY-MM-DD, inclusive)")
+    end: str = Field(description="Range end date (YYYY-MM-DD, inclusive)")
+
+
+class ForecastAvailabilityResponse(BaseModel):
+    """
+    Genuine, data-derived date availability for GET /api/forecast and
+    GET /api/forecast/series. A date is servable if it falls in
+    historical_range (real backtest) OR forecastable_range (live/future
+    autoregressive forecast) — dates strictly between the two ranges are a
+    real gap in the underlying dataset and are NOT available.
+    """
+
+    reference_date: str = Field(description="Backend's current calendar date (YYYY-MM-DD, Asia/Kolkata)")
+    historical_range: Optional[DateRange] = Field(
+        None, description="Inclusive range of real historical dates available for genuine backtesting"
+    )
+    forecastable_range: DateRange = Field(
+        description="Inclusive range from today through the maximum supported future forecast date"
+    )
+    min_date: str = Field(description="Earliest genuinely supported date across both ranges")
+    max_date: str = Field(description="Latest genuinely supported date across both ranges")
 
 
 class ModelHorizonMetrics(BaseModel):

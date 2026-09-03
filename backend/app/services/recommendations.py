@@ -17,7 +17,7 @@ Deterministic: same locality + same forecast + same SHAP explanation +
 same test scenario => same recommendations, every time.
 """
 
-from typing import Dict, List, Tuple
+from typing import Dict, List, Optional, Tuple
 
 from app.schemas.recommendations import RecommendationItem, RecommendationsResponse
 from app.schemas.simulation import SimulationRequest
@@ -83,7 +83,9 @@ class RecommendationEngine:
             cls._instance = cls()
         return cls._instance
 
-    def get_recommendations(self, locality_id: str, horizon: str = "1h") -> RecommendationsResponse:
+    def get_recommendations(
+        self, locality_id: str, horizon: str = "1h", date: Optional[str] = None
+    ) -> RecommendationsResponse:
         locality = LOCALITIES_BY_ID.get(locality_id)
         if locality is None:
             raise KeyError(f"Locality '{locality_id}' not found")
@@ -92,13 +94,14 @@ class RecommendationEngine:
 
         explanation_engine = ExplanationEngine.get_instance()
         explanation = explanation_engine.get_explanation(
-            locality_id=locality_id, horizon=norm_horizon, top_n=8
+            locality_id=locality_id, horizon=norm_horizon, top_n=8, date=date
         )
 
         sim_service = SimulationService.get_instance()
         sim_request = SimulationRequest(
             locality_id=locality_id,
             horizon=norm_horizon,
+            date=date,
             **TEST_SCENARIO,
         )
         simulation = sim_service.simulate(sim_request)
@@ -129,6 +132,7 @@ class RecommendationEngine:
             locality_id=locality.id,
             locality_name=locality.name,
             horizon=norm_horizon,
+            date=simulation.date,
             recommendations=recommendations,
             is_demo_fallback=explanation.is_demo_fallback or simulation.is_demo_fallback,
         )

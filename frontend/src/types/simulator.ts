@@ -59,6 +59,8 @@ export type ScenarioPeak = {
 
 export type SimulationResult = {
   localityId: string;
+  /** Calendar date ("YYYY-MM-DD") the baseline forecast was generated for */
+  date: string;
   baseline: BaselinePeak;
   scenario: ScenarioPeak;
   reductionMw: number;

@@ -44,6 +44,15 @@ export type ForecastSeries = {
   thresholdMw: number;
   peakTimestamp: number;
   peakMw: number;
+  /**
+   * "YYYY-MM-DD" calendar date this series was generated for — echoed
+   * directly from the backend's `date` field on GET /api/forecast/series,
+   * confirming the date actually served (defends against any client/server
+   * date-resolution mismatch).
+   */
+  referenceDate: string;
+  /** How this series was produced: real backtest, live forecast, or bounded future extrapolation. */
+  dataMode: "historical" | "current" | "future";
 };
 
 export type ForecastSummary = {
@@ -111,6 +120,8 @@ export type ModelAccuracy = Record<ForecastHorizon, AccuracyMetric>;
 export type ForecastResponse = {
   localityId: string;
   horizon: ForecastHorizon;
+  date: string;
+  dataMode: "historical" | "current" | "future";
   summary: ForecastSummary;
   peakAnalysis: PeakAnalysis;
   inputs: ForecastInputs;
@@ -144,6 +155,8 @@ export type ExplanationData = {
   localityId: string;
   localityName: string;
   horizon: ForecastHorizon;
+  /** Calendar date ("YYYY-MM-DD") this explanation corresponds to */
+  date: string;
   /** Bulk Mumbai model prediction (MW) for the peak point */
   predictionMw: number;
   /** Locality-scaled peak demand prediction (MW) */

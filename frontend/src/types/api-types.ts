@@ -27,11 +27,15 @@ export type ApiPeakAnalysis = {
   peak_window: string | null;
 };
 
+export type ApiDataMode = "historical" | "current" | "future";
+
 /** Response from GET /api/forecast */
 export type ApiForecastResponse = {
   locality_id: string;
   locality_name: string;
   current_demand_mw: number;
+  date: string;
+  data_mode: ApiDataMode;
   forecast: ApiForecastValues;
   peak: ApiPeakAnalysis;
   confidence: number;
@@ -52,8 +56,22 @@ export type ApiForecastSeriesResponse = {
   locality_id: string;
   horizon: string;
   unit: string;
+  date: string;
+  data_mode: ApiDataMode;
   points: ApiForecastPoint[];
   is_demo_fallback: boolean;
+};
+
+/** One inclusive date range as returned by GET /api/forecast/availability */
+export type ApiDateRange = { start: string; end: string };
+
+/** Response from GET /api/forecast/availability */
+export type ApiForecastAvailabilityResponse = {
+  reference_date: string;
+  historical_range: ApiDateRange | null;
+  forecastable_range: ApiDateRange;
+  min_date: string;
+  max_date: string;
 };
 
 /** Per-horizon metrics from GET /api/model-metrics */
@@ -89,6 +107,7 @@ export type ApiExplanationResponse = {
   locality_id: string;
   locality_name: string;
   horizon: string;
+  date: string;
   prediction_mw: number;
   locality_prediction_mw: number;
   base_value_mw: number;
@@ -102,6 +121,7 @@ export type ApiExplanationResponse = {
 export type ApiSimulationRequest = {
   locality_id: string;
   horizon: "15min" | "1h" | "24h";
+  date?: string | null;
   cooling_shift: number;
   commercial_shift: number;
   flexible_load: number;
@@ -130,6 +150,7 @@ export type ApiSimulationResponse = {
   locality_id: string;
   locality_name: string;
   horizon: string;
+  date: string;
   baseline_peak_mw: number;
   baseline_peak_time: string;
   baseline_risk: "LOW" | "MEDIUM" | "HIGH" | "CRITICAL";
@@ -172,6 +193,7 @@ export type ApiForecastInputsResponse = {
   locality_id: string;
   locality_name: string;
   horizon: string;
+  date: string;
   peak_hour: number;
   features: ApiForecastInputFeature[];
   disclaimer: string;
@@ -195,6 +217,7 @@ export type ApiRecommendationsResponse = {
   locality_id: string;
   locality_name: string;
   horizon: string;
+  date: string;
   recommendations: ApiRecommendationItem[];
   scenario_note: string;
   method: string;

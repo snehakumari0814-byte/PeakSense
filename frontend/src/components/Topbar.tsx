@@ -7,7 +7,14 @@ type HealthStatus = "checking" | "online" | "offline";
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000";
 
-export default function Topbar({ title }: { title: string }) {
+export default function Topbar({
+  title,
+  variant = "dark",
+}: {
+  title: string;
+  /** "light" is used by the Forecast, Peak Prevention, and Simulator pages. */
+  variant?: "dark" | "light";
+}) {
   const [status, setStatus] = useState<HealthStatus>("checking");
 
   useEffect(() => {
@@ -29,6 +36,38 @@ export default function Topbar({ title }: { title: string }) {
       clearInterval(interval);
     };
   }, []);
+
+  if (variant === "light") {
+    return (
+      <header className="flex items-center justify-between border-b border-ps-border bg-ps-card px-6 py-4">
+        <h1 className="text-lg font-semibold text-ps-text-primary">{title}</h1>
+        <div
+          className={`flex items-center gap-1.5 text-xs font-medium ${
+            status === "online"
+              ? "text-ps-success"
+              : status === "offline"
+                ? "text-ps-critical"
+                : "text-ps-text-muted"
+          }`}
+        >
+          <span
+            className={`h-[7px] w-[7px] rounded-full ${
+              status === "online"
+                ? "bg-ps-success"
+                : status === "offline"
+                  ? "bg-ps-critical"
+                  : "bg-ps-text-muted"
+            }`}
+          />
+          {status === "checking"
+            ? "Checking backend…"
+            : status === "online"
+              ? "Backend online"
+              : "Backend offline"}
+        </div>
+      </header>
+    );
+  }
 
   return (
     <header className="flex items-center justify-between border-b border-slate-800 bg-slate-950/60 px-6 py-4">

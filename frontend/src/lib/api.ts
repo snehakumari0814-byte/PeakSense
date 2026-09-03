@@ -26,6 +26,7 @@ import type {
   ApiModelMetricsResponse,
   ApiForecastResponse,
   ApiForecastSeriesResponse,
+  ApiForecastAvailabilityResponse,
   ApiExplanationResponse,
   ApiSimulationRequest,
   ApiSimulationResponse,
@@ -42,16 +43,30 @@ import type {
   ScenarioSeriesPoint,
 } from "@/types/simulator";
 import type { RiskLevel } from "@/lib/risk";
+import type { DateAvailability, DateString } from "@/lib/date";
 
 export const API_BASE_URL =
   process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000";
 
 export class ApiError extends Error {
   status: number;
+  /** The backend's own `detail` string, when the response body carried one (e.g. FastAPI HTTPException). */
+  detail?: string;
 
-  constructor(message: string, status: number) {
+  constructor(message: string, status: number, detail?: string) {
     super(message);
     this.status = status;
+    this.detail = detail;
+  }
+}
+
+/** Best-effort extraction of FastAPI's `{"detail": "..."}` error body. */
+async function extractErrorDetail(res: Response): Promise<string | undefined> {
+  try {
+    const body = await res.clone().json();
+    return typeof body?.detail === "string" ? body.detail : undefined;
+  } catch {
+    return undefined;
   }
 }
 
@@ -94,6 +109,36 @@ function parsePeakWindow(
 
 // ─── Adapter: ApiForecastResponse → ForecastResponse ─────────────────────────
 
+function adaptForecastAvailability(api: ApiForecastAvailabilityResponse): DateAvailability {
+  return {
+    referenceDate: api.reference_date,
+    historicalRange: api.historical_range
+      ? { start: api.historical_range.start, end: api.historical_range.end }
+      : null,
+    forecastableRange: { start: api.forecastable_range.start, end: api.forecastable_range.end },
+    minDate: api.min_date,
+    maxDate: api.max_date,
+  };
+}
+
+/**
+ * GET /api/forecast/availability — the genuine, data-derived date range(s)
+ * the backend can produce real forecasts for. Fetch once and reuse; it only
+ * changes when the backend's reference date advances (i.e. at most daily).
+ * Throws ApiError on network or HTTP failure.
+ */
+export async function fetchForecastAvailability(): Promise<DateAvailability> {
+  const res = await fetch(`${API_BASE_URL}/api/forecast/availability`);
+  if (!res.ok) {
+    throw new ApiError(
+      `Forecast availability fetch failed: ${res.status} ${res.statusText}`,
+      res.status,
+    );
+  }
+  const raw: ApiForecastAvailabilityResponse = await res.json();
+  return adaptForecastAvailability(raw);
+}
+
 function adaptForecastResponse(
   api: ApiForecastResponse,
   horizon: ForecastHorizon,
@@ -127,6 +172,8 @@ function adaptForecastResponse(
   return {
     localityId: api.locality_id,
     horizon,
+    date: api.date,
+    dataMode: api.data_mode,
     summary,
     peakAnalysis,
     // Inputs are now fetched separately via fetchForecastInputs() (GET /api/forecast/inputs).
@@ -176,6 +223,10 @@ function adaptForecastSeries(
     thresholdMw,
     peakTimestamp: peakPoint?.timestamp ?? 0,
     peakMw: peakPoint?.predictedMw ?? 0,
+    // Echoed directly from the backend's own `date` field — the calendar
+    // date this series was actually generated for.
+    referenceDate: api.date,
+    dataMode: api.data_mode,
   };
 }
 
@@ -239,9 +290,12 @@ function adaptRecommendations(api: ApiRecommendationsResponse): Recommendation[]
 export async function fetchRecommendations(
   localityId: string,
   horizon: import("@/types/forecast").ForecastHorizon,
+  date?: DateString,
 ): Promise<{ data: Recommendation[]; isDemoFallback: boolean }> {
   const backendHorizon = toBackendHorizon(horizon);
-  const url = `${API_BASE_URL}/api/recommendations?locality_id=${encodeURIComponent(localityId)}&horizon=${encodeURIComponent(backendHorizon)}`;
+  const params = new URLSearchParams({ locality_id: localityId, horizon: backendHorizon });
+  if (date) params.set("date", date);
+  const url = `${API_BASE_URL}/api/recommendations?${params}`;
 
   const res = await fetch(url);
   if (!res.ok) {
@@ -286,16 +340,19 @@ export async function fetchLocality(id: string): Promise<Locality> {
 export async function fetchForecast(
   localityId: string,
   horizon: ForecastHorizon,
+  date?: DateString,
 ): Promise<{ data: ForecastResponse; isDemoFallback: boolean }> {
   const params = new URLSearchParams({
     locality_id: localityId,
     horizon: toBackendHorizon(horizon),
   });
+  if (date) params.set("date", date);
   const res = await fetch(`${API_BASE_URL}/api/forecast?${params}`);
   if (!res.ok) {
     throw new ApiError(
       `Forecast fetch failed: ${res.status} ${res.statusText}`,
       res.status,
+      await extractErrorDetail(res),
     );
   }
   const raw: ApiForecastResponse = await res.json();
@@ -314,16 +371,19 @@ export async function fetchForecastSeries(
   localityId: string,
   horizon: ForecastHorizon,
   thresholdMw: number,
+  date?: DateString,
 ): Promise<{ data: ForecastSeries; isDemoFallback: boolean }> {
   const params = new URLSearchParams({
     locality_id: localityId,
     horizon: toBackendHorizon(horizon),
   });
+  if (date) params.set("date", date);
   const res = await fetch(`${API_BASE_URL}/api/forecast/series?${params}`);
   if (!res.ok) {
     throw new ApiError(
       `Forecast series fetch failed: ${res.status} ${res.statusText}`,
       res.status,
+      await extractErrorDetail(res),
     );
   }
   const raw: ApiForecastSeriesResponse = await res.json();
@@ -389,6 +449,7 @@ function adaptExplanation(
     localityId: api.locality_id,
     localityName: api.locality_name,
     horizon,
+    date: api.date,
     predictionMw: api.prediction_mw,
     localityPredictionMw: api.locality_prediction_mw,
     baseValueMw: api.base_value_mw,
@@ -407,16 +468,19 @@ function adaptExplanation(
 export async function fetchExplanation(
   localityId: string,
   horizon: ForecastHorizon,
+  date?: DateString,
 ): Promise<{ data: ExplanationData; isDemoFallback: boolean }> {
   const params = new URLSearchParams({
     locality_id: localityId,
     horizon: toBackendHorizon(horizon),
   });
+  if (date) params.set("date", date);
   const res = await fetch(`${API_BASE_URL}/api/explanation?${params}`);
   if (!res.ok) {
     throw new ApiError(
       `Explanation fetch failed: ${res.status} ${res.statusText}`,
       res.status,
+      await extractErrorDetail(res),
     );
   }
   const raw: ApiExplanationResponse = await res.json();
@@ -461,6 +525,7 @@ function adaptSimulation(api: ApiSimulationResponse): SimulationResult {
 
   return {
     localityId: api.locality_id,
+    date: api.date,
     baseline,
     scenario,
     reductionMw: api.reduction_mw,
@@ -488,11 +553,13 @@ export async function postSimulate(
   localityId: string,
   horizon: import("@/types/forecast").ForecastHorizon,
   interventions: InterventionSettings,
+  date?: DateString,
 ): Promise<{ data: SimulationResult; isDemoFallback: boolean }> {
   const backendHorizon = toBackendHorizon(horizon);
   const reqBody: ApiSimulationRequest = {
     locality_id: localityId,
     horizon: backendHorizon as "15min" | "1h" | "24h",
+    date: date ?? null,
     cooling_shift: interventions.coolingShift,
     commercial_shift: interventions.commercialShift,
     flexible_load: interventions.flexibleLoad,
@@ -509,6 +576,7 @@ export async function postSimulate(
     throw new ApiError(
       `Simulation failed: ${res.status} ${res.statusText}`,
       res.status,
+      await extractErrorDetail(res),
     );
   }
 
@@ -550,15 +618,19 @@ function adaptForecastInputs(api: ApiForecastInputsResponse): ForecastInputs {
 export async function fetchForecastInputs(
   localityId: string,
   horizon: import("@/types/forecast").ForecastHorizon,
+  date?: DateString,
 ): Promise<{ data: ForecastInputs; isDemoFallback: boolean }> {
   const backendHorizon = toBackendHorizon(horizon);
-  const url = `${API_BASE_URL}/api/forecast/inputs?locality_id=${encodeURIComponent(localityId)}&horizon=${encodeURIComponent(backendHorizon)}`;
+  const params = new URLSearchParams({ locality_id: localityId, horizon: backendHorizon });
+  if (date) params.set("date", date);
+  const url = `${API_BASE_URL}/api/forecast/inputs?${params}`;
 
   const res = await fetch(url);
   if (!res.ok) {
     throw new ApiError(
       `Forecast inputs fetch failed: ${res.status} ${res.statusText}`,
       res.status,
+      await extractErrorDetail(res),
     );
   }
 

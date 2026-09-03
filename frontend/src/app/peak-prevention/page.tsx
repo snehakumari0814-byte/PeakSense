@@ -1,8 +1,8 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
-import { AlertTriangle, ArrowRight, RefreshCw } from "lucide-react";
+import { ArrowRight, RefreshCw } from "lucide-react";
 import Topbar from "@/components/Topbar";
 import PreventionHeader from "@/components/prevention/PreventionHeader";
 import PeakRiskOverview from "@/components/prevention/PeakRiskOverview";
@@ -11,10 +11,13 @@ import PeakDrivers from "@/components/prevention/PeakDrivers";
 import MitigationRecommendations from "@/components/prevention/MitigationRecommendations";
 import PreventionTimeline from "@/components/prevention/PreventionTimeline";
 import PeakReductionOpportunity from "@/components/prevention/PeakReductionOpportunity";
+import DateUnavailablePanel from "@/components/DateUnavailablePanel";
 import {
+  ApiError,
   fetchLocalities,
   fetchForecast,
   fetchForecastSeries,
+  fetchForecastAvailability,
   fetchExplanation,
   fetchRecommendations,
   postSimulate,
@@ -23,6 +26,8 @@ import {
   buildPreventionFromForecast,
   mockPreventionData,
 } from "@/lib/prevention";
+import { getTodayDate, isValidDateString, type DateAvailability, type DateString } from "@/lib/date";
+import { useQuerySync } from "@/lib/useQuerySync";
 import type { Locality } from "@/types/locality";
 import type { ExplanationData } from "@/types/forecast";
 import type { PreventionData, Recommendation } from "@/types/prevention";
@@ -36,8 +41,6 @@ type BackendStatus = "checking" | "live" | "fallback";
  * with the What-If Simulator when these interventions are selected.
  *
  * cooling_shift=0.30 | commercial_shift=0.20 | flexible_load=0.10 | solar_utilization=0.50
- *
- * Labelled "Moderate scenario opportunity" — not optimal or guaranteed.
  */
 const DEFAULT_PREVENTION_INTERVENTIONS = {
   coolingShift: 0.30,
@@ -46,10 +49,17 @@ const DEFAULT_PREVENTION_INTERVENTIONS = {
   solarUtilization: 0.50,
 } as const;
 
-export default function PeakPreventionPage() {
+function PeakPreventionPageInner() {
+  const { initialLocality, initialDate, setParams } = useQuerySync();
+
   const [localities, setLocalities] = useState<Locality[]>([]);
   const [listState, setListState] = useState<"loading" | "ready" | "error">("loading");
-  const [selectedLocalityId, setSelectedLocalityId] = useState<string | null>(null);
+  const [selectedLocalityId, setSelectedLocalityIdState] = useState<string | null>(initialLocality);
+  const [selectedDate, setSelectedDateState] = useState<DateString>(
+    isValidDateString(initialDate) ? initialDate : getTodayDate(),
+  );
+  const [availability, setAvailability] = useState<DateAvailability | null>(null);
+  const [dateUnavailableDetail, setDateUnavailableDetail] = useState<string | null>(null);
 
   const [backendStatus, setBackendStatus] = useState<BackendStatus>("checking");
   const [prevention, setPrevention] = useState<PreventionData | null>(null);
@@ -58,6 +68,24 @@ export default function PeakPreventionPage() {
   // Explanation state — same endpoint as Forecast page
   const [explanation, setExplanation] = useState<ExplanationData | null>(null);
   const [explanationStatus, setExplanationStatus] = useState<ExplanationStatus>("checking");
+
+  const runIdRef = useRef(0);
+
+  function setSelectedLocalityId(id: string) {
+    setSelectedLocalityIdState(id);
+  }
+  function setSelectedDate(date: DateString) {
+    setSelectedDateState(date);
+  }
+
+  // Keep the URL in sync so navigating away and back (or to Forecast /
+  // Simulator) preserves this exact selection.
+  useEffect(() => {
+    if (selectedLocalityId) {
+      setParams({ locality: selectedLocalityId, date: selectedDate });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedLocalityId, selectedDate]);
 
   // ── Locality list ──────────────────────────────────────────────────────────
   useEffect(() => {
@@ -68,13 +96,17 @@ export default function PeakPreventionPage() {
         if (cancelled) return;
         setLocalities(data);
         setListState("ready");
-        if (data.length > 0) setSelectedLocalityId(data[0].id);
+        const valid = initialLocality && data.some((l) => l.id === initialLocality);
+        if (!selectedLocalityId || !data.some((l) => l.id === selectedLocalityId)) {
+          setSelectedLocalityIdState(valid ? initialLocality! : data[0]?.id ?? null);
+        }
       })
       .catch(() => {
         if (!cancelled) setListState("error");
       });
 
     return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const selectedLocality = useMemo(
@@ -82,12 +114,23 @@ export default function PeakPreventionPage() {
     [localities, selectedLocalityId],
   );
 
+  // ── Date availability (fetched once — the genuine backend-derived range) ───
+  useEffect(() => {
+    let cancelled = false;
+    fetchForecastAvailability()
+      .then((data) => {
+        if (!cancelled) setAvailability(data);
+      })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, []);
+
   // ── SHAP Explanation (same source as Forecast page) ───────────────────────
-  const loadExplanation = useCallback(async (localityId: string) => {
+  const loadExplanation = useCallback(async (localityId: string, date: DateString) => {
     setExplanationStatus("checking");
     setExplanation(null);
     try {
-      const result = await fetchExplanation(localityId, "1h");
+      const result = await fetchExplanation(localityId, "1h", date);
       setExplanation(result.data);
       setExplanationStatus(result.isDemoFallback ? "fallback" : "live");
     } catch {
@@ -98,16 +141,19 @@ export default function PeakPreventionPage() {
   // ── Prevention data (real forecast + SHAP + simulation → fallback to mocks) ─
   const loadPrevention = useCallback(async () => {
     if (!selectedLocality) return;
+    const thisRun = ++runIdRef.current;
 
     setPreventionState("loading");
     setBackendStatus("checking");
+    setDateUnavailableDetail(null);
 
     try {
       // Step 1: Fetch forecast + series in parallel
       const [forecastResult, seriesResult] = await Promise.all([
-        fetchForecast(selectedLocality.id, "1h"),
-        fetchForecastSeries(selectedLocality.id, "1h", selectedLocality.peak_threshold_mw),
+        fetchForecast(selectedLocality.id, "1h", selectedDate),
+        fetchForecastSeries(selectedLocality.id, "1h", selectedLocality.peak_threshold_mw, selectedDate),
       ]);
+      if (thisRun !== runIdRef.current) return;
 
       // Step 2: Fetch SHAP explanation + default scenario simulation +
       // backend recommendations in parallel. These are independent of each
@@ -117,10 +163,11 @@ export default function PeakPreventionPage() {
       let recommendationsData: Recommendation[] | null = null;
 
       const [explResult, simResult, recResult] = await Promise.allSettled([
-        fetchExplanation(selectedLocality.id, "1h"),
-        postSimulate(selectedLocality.id, "1h", DEFAULT_PREVENTION_INTERVENTIONS),
-        fetchRecommendations(selectedLocality.id, "1h"),
+        fetchExplanation(selectedLocality.id, "1h", selectedDate),
+        postSimulate(selectedLocality.id, "1h", DEFAULT_PREVENTION_INTERVENTIONS, selectedDate),
+        fetchRecommendations(selectedLocality.id, "1h", selectedDate),
       ]);
+      if (thisRun !== runIdRef.current) return;
 
       if (explResult.status === "fulfilled") {
         explanationData = explResult.value.data;
@@ -151,12 +198,20 @@ export default function PeakPreventionPage() {
       setPrevention(data);
       setBackendStatus(forecastResult.isDemoFallback ? "fallback" : "live");
       setPreventionState("ready");
-    } catch {
+    } catch (err) {
+      if (thisRun !== runIdRef.current) return;
+      if (err instanceof ApiError && err.status === 404 && err.detail) {
+        setDateUnavailableDetail(err.detail);
+        setBackendStatus("live");
+        setPreventionState("ready");
+        return;
+      }
       setBackendStatus("fallback");
-      setPrevention(mockPreventionData(selectedLocality));
+      const fallback = mockPreventionData(selectedLocality);
+      setPrevention(fallback);
       setPreventionState("ready");
     }
-  }, [selectedLocality]);
+  }, [selectedLocality, selectedDate]);
 
   useEffect(() => {
     if (selectedLocality) {
@@ -165,95 +220,80 @@ export default function PeakPreventionPage() {
   }, [loadPrevention, selectedLocality]);
 
   const isLive = backendStatus === "live";
+  const dateUnavailable = dateUnavailableDetail !== null;
 
-  // Determine what is genuinely live for the status banner
   const driversAreShap = prevention
     ? !prevention.isDemoData && prevention.drivers.some((d) => d.shapValueMw !== null)
     : false;
-  const reductionIsLive = prevention ? !prevention.reduction.isDemoData : false;
+
+  const simulatorHref = selectedLocality
+    ? `/simulator?locality=${encodeURIComponent(selectedLocality.id)}&date=${encodeURIComponent(selectedDate)}`
+    : "/simulator";
 
   return (
     <>
-      <Topbar title="Peak Prevention" />
-      <main className="flex flex-1 flex-col gap-4 overflow-y-auto p-6">
-        {selectedLocality && prevention ? (
-          <PreventionHeader
-            localities={localities}
-            selectedLocalityId={selectedLocality.id}
-            onSelectLocality={setSelectedLocalityId}
-            peakTime={prevention.peakTime}
-            risk={prevention.risk}
-          />
-        ) : (
-          <div>
-            <h1 className="text-xl font-semibold text-white">Peak Prevention</h1>
-            <p className="mt-1 text-sm text-slate-500">
-              Understand the predicted peak and identify actions to reduce grid stress.
-            </p>
-          </div>
-        )}
+      <Topbar title="Peak Prevention" variant="light" />
+      <main className="flex flex-1 flex-col gap-4 overflow-y-auto bg-ps-background p-6">
+        <div className="flex items-start justify-between gap-4">
+          {selectedLocality && prevention ? (
+            <PreventionHeader
+              localities={localities}
+              selectedLocalityId={selectedLocality.id}
+              onSelectLocality={setSelectedLocalityId}
+              peakTime={prevention.peakTime}
+              risk={prevention.risk}
+              selectedDate={selectedDate}
+              availability={availability}
+              onSelectDate={setSelectedDate}
+            />
+          ) : (
+            <div>
+              <h1 className="text-xl font-semibold text-ps-text-primary">Peak prevention</h1>
+              <p className="mt-1 text-sm text-ps-text-secondary">
+                Identify actions to reduce predicted grid stress
+              </p>
+            </div>
+          )}
 
-        {/* Backend status banner */}
-        <div
-          className={`flex items-start gap-2 rounded-md border px-3 py-2 text-xs ${
-            isLive
-              ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-400"
-              : backendStatus === "fallback"
-              ? "border-amber-500/30 bg-amber-500/10 text-amber-400"
-              : "border-slate-700/40 bg-slate-800/40 text-slate-500"
-          }`}
-        >
-          <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-          <p>
-            {isLive && (
-              <>
-                <span className="font-semibold text-emerald-300">● LIVE MODEL</span>
-                {" — "}Peak, demand, threshold, risk, and SHAP explanation come from the real ML backend.
-                {driversAreShap && " Key Drivers use real SHAP contributions."}
-                {reductionIsLive && " Peak Reduction uses real POST /api/simulate."}
-                {" "}Timeline derives from real forecast series timestamps.
-                {!driversAreShap && " SHAP unavailable — Key Drivers are estimates."}
-              </>
-            )}
-            {backendStatus === "fallback" && (
-              <>
-                <span className="font-semibold text-amber-300">⚠ DEMO FALLBACK</span>
-                {" — "}Backend offline. All values are local prototype data.
-              </>
-            )}
-            {backendStatus === "checking" && "Connecting to ML backend…"}
-          </p>
           {backendStatus === "fallback" && (
             <button
               type="button"
-              onClick={() => { void loadPrevention(); }}
-              className="ml-auto flex shrink-0 items-center gap-1 rounded border border-amber-500/40 px-2 py-1 text-[11px] font-medium text-amber-400 hover:bg-amber-500/10 transition-colors"
+              onClick={() => void loadPrevention()}
+              className="mt-1 flex shrink-0 items-center gap-1.5 rounded-md border border-ps-border bg-ps-card px-2.5 py-1.5 text-xs font-medium text-ps-text-secondary shadow-sm hover:text-ps-text-primary"
             >
-              <RefreshCw className="h-3 w-3" />
+              <RefreshCw className="h-3.5 w-3.5" />
               Retry
             </button>
           )}
         </div>
 
         {listState === "loading" && (
-          <p className="text-sm text-slate-500">Loading locality data…</p>
+          <p className="text-sm text-ps-text-muted">Loading locality data…</p>
         )}
 
         {listState === "error" && (
-          <p className="text-sm text-red-400">
+          <p className="text-sm text-ps-critical">
             Could not reach the backend at the configured API URL. Make sure the FastAPI server
             is running.
           </p>
         )}
 
         {preventionState === "loading" && listState === "ready" && (
-          <div className="flex items-center gap-2 rounded-lg border border-slate-800 bg-slate-900/50 p-8 text-sm text-slate-500">
+          <div className="flex items-center gap-2 rounded-xl border border-ps-border bg-ps-card p-8 text-sm text-ps-text-muted shadow-sm">
             <RefreshCw className="h-4 w-4 animate-spin" />
             Loading forecast data…
           </div>
         )}
 
-        {listState === "ready" && preventionState === "ready" && prevention && (
+        {listState === "ready" && preventionState === "ready" && dateUnavailable && (
+          <DateUnavailablePanel
+            requestedDate={selectedDate}
+            detail={dateUnavailableDetail ?? undefined}
+            onUseToday={() => setSelectedDate(getTodayDate())}
+          />
+        )}
+
+        {listState === "ready" && preventionState === "ready" && prevention && !dateUnavailable && (
           <>
             <PeakRiskOverview data={prevention} isLive={isLive} />
 
@@ -262,7 +302,7 @@ export default function PeakPreventionPage() {
               explanation={explanation}
               explanationStatus={explanationStatus}
               demoExplanationText={prevention.explanation}
-              onRetry={() => selectedLocality && void loadExplanation(selectedLocality.id)}
+              onRetry={() => selectedLocality && void loadExplanation(selectedLocality.id, selectedDate)}
             />
 
             <PeakDrivers
@@ -284,8 +324,8 @@ export default function PeakPreventionPage() {
 
             <div className="flex justify-center py-2">
               <Link
-                href="/simulator"
-                className="flex items-center gap-2 rounded-md border border-emerald-500/40 bg-emerald-500/10 px-5 py-2.5 text-sm font-medium text-emerald-400 transition-colors hover:bg-emerald-500/20"
+                href={simulatorHref}
+                className="flex items-center gap-2 rounded-md border border-ps-border bg-ps-card px-5 py-2.5 text-sm font-medium text-ps-accent shadow-sm transition-colors hover:bg-ps-accent-soft"
               >
                 Open What-If Simulator
                 <ArrowRight className="h-4 w-4" />
@@ -295,5 +335,13 @@ export default function PeakPreventionPage() {
         )}
       </main>
     </>
+  );
+}
+
+export default function PeakPreventionPage() {
+  return (
+    <Suspense fallback={null}>
+      <PeakPreventionPageInner />
+    </Suspense>
   );
 }

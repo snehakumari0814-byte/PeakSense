@@ -7,6 +7,7 @@ POST /api/simulate
 from fastapi import APIRouter, HTTPException
 
 from app.schemas.simulation import SimulationRequest, SimulationResponse
+from app.services.forecasting import DateUnavailableError
 from app.services.simulation import SimulationService
 
 router = APIRouter(prefix="/api", tags=["simulation"])
@@ -39,6 +40,10 @@ def simulate(req: SimulationRequest) -> SimulationResponse:
             status_code=404,
             detail=f"Locality '{req.locality_id}' not found"
         )
+    except DateUnavailableError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         raise HTTPException(
             status_code=500,

@@ -1,5 +1,7 @@
 import type { PeakDriver } from "@/types/prevention";
-import DemoDataBadge from "@/components/DemoDataBadge";
+
+const INCREASE_COLOR = "#dc2626";
+const DECREASE_COLOR = "#16a34a";
 
 export default function PeakDrivers({
   drivers,
@@ -12,43 +14,29 @@ export default function PeakDrivers({
   const hasShap = isLive && drivers.some((d) => d.shapValueMw !== null);
 
   return (
-    <div className="rounded-lg border border-slate-800 bg-slate-900/50 p-5">
-      <div className="mb-3 flex items-center justify-between">
-        <div>
-          <h2 className="text-sm font-semibold uppercase tracking-wide text-white">Key Drivers</h2>
-          {hasShap && (
-            <p className="mt-0.5 text-[10px] uppercase tracking-widest text-slate-600">
-              Model Contributions
-            </p>
-          )}
-        </div>
-        {isLive ? (
-          <DemoDataBadge variant="live" label="SHAP · Live" />
-        ) : (
-          <DemoDataBadge variant="fallback" label="Demo Fallback" />
-        )}
-      </div>
+    <div className="rounded-xl border border-ps-border bg-ps-card p-5 shadow-sm">
+      <h2 className="mb-3 text-sm font-semibold text-ps-text-primary">Key drivers</h2>
 
       <div className="flex flex-col gap-3">
         {drivers.map((driver) => {
-          const barColor = driver.direction === "decrease" ? "#34d399" : "#22d3ee";
+          const barColor = driver.direction === "decrease" ? DECREASE_COLOR : INCREASE_COLOR;
           return (
             <div key={driver.name}>
               <div className="mb-1 flex items-center justify-between text-xs">
-                <span className="text-slate-300">{driver.name}</span>
-                <span className="font-medium text-slate-400">{driver.contributionPct}%</span>
+                <span className="text-ps-text-secondary">{driver.name}</span>
+                <span className="font-medium text-ps-text-muted">{driver.contributionPct}%</span>
               </div>
-              <div className="h-2 w-full overflow-hidden rounded-full bg-slate-800">
+              <div className="h-1.5 w-full overflow-hidden rounded-full bg-ps-border">
                 <div
                   className="h-full rounded-full transition-all duration-500"
                   style={{ width: `${driver.contributionPct}%`, backgroundColor: barColor }}
                 />
               </div>
               {hasShap && driver.shapValueMw !== null && (
-                <div className="mt-0.5 text-[10px] text-slate-600">
-                  SHAP: {driver.shapValueMw > 0 ? "+" : ""}{driver.shapValueMw.toFixed(1)} MW bulk
+                <div className="mt-0.5 text-[11px] text-ps-text-muted">
+                  {driver.shapValueMw > 0 ? "+" : ""}{driver.shapValueMw.toFixed(1)} MW bulk
                   {" · "}
-                  {driver.direction === "increase" ? "↑ pushes demand up" : "↓ reduces demand"}
+                  {driver.direction === "increase" ? "pushes demand up" : "reduces demand"}
                 </div>
               )}
             </div>
@@ -56,12 +44,10 @@ export default function PeakDrivers({
         })}
       </div>
 
-      <p className="mt-3 text-[11px] leading-relaxed text-slate-600">
+      <p className="mt-3 text-xs leading-relaxed text-ps-text-muted">
         {hasShap
-          ? "Normalized SHAP contribution share — not a load percentage. Values are in bulk Mumbai MW (model-native unit), proportionally scaled for display."
-          : isDemoData
-          ? "Demo contribution split only — not real model feature importance."
-          : "SHAP values unavailable — showing fallback estimates."}
+          ? "Normalized contribution share, not a load percentage. Values are in bulk Mumbai MW (model-native unit), proportionally scaled for display."
+          : "Contribution split unavailable — showing fallback estimates."}
       </p>
     </div>
   );

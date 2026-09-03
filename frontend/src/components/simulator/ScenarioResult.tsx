@@ -1,7 +1,6 @@
-import { CheckCircle2, TrendingDown } from "lucide-react";
+import { CheckCircle2, ArrowRight } from "lucide-react";
 import type { SimulationResult } from "@/types/simulator";
 import { RISK_COLORS, RISK_LABELS } from "@/lib/risk";
-import DemoDataBadge from "@/components/DemoDataBadge";
 
 function PeakCard({
   label,
@@ -14,11 +13,11 @@ function PeakCard({
 }) {
   const color = RISK_COLORS[risk];
   return (
-    <div className="flex-1 rounded-md border border-slate-800 bg-slate-900/40 p-4 text-center">
-      <p className="text-[11px] font-medium uppercase tracking-wide text-slate-500">{label}</p>
-      <p className="mt-1 text-3xl font-bold text-white">{peakMw} MW</p>
+    <div className="flex-1 rounded-lg border border-ps-border bg-ps-background p-4 text-center">
+      <p className="text-xs font-medium text-ps-text-muted">{label}</p>
+      <p className="mt-1 text-3xl font-bold text-ps-text-primary">{peakMw} MW</p>
       <p className="mt-1 text-sm font-semibold" style={{ color }}>
-        {RISK_LABELS[risk].toUpperCase()}
+        {RISK_LABELS[risk]}
       </p>
     </div>
   );
@@ -26,48 +25,38 @@ function PeakCard({
 
 export default function ScenarioResult({ result }: { result: SimulationResult }) {
   const { baseline, scenario, reductionMw, reductionPct } = result;
-  const isLive = !result.isDemoData;
 
   return (
-    <div className="rounded-lg border border-slate-800 bg-slate-900/50 p-5">
-      <div className="mb-4 flex items-center justify-between">
-        <h2 className="text-sm font-semibold uppercase tracking-wide text-white">Before / After</h2>
-        {isLive ? (
-          <DemoDataBadge variant="live" label="Model · Live" />
-        ) : (
-          <DemoDataBadge variant="fallback" label="Demo Fallback" />
-        )}
-      </div>
+    <div className="rounded-xl border border-ps-border bg-ps-card p-5 shadow-sm">
+      <h2 className="mb-4 text-sm font-semibold text-ps-text-primary">Before / after</h2>
 
       <div className="flex flex-col items-stretch gap-3 sm:flex-row sm:items-center">
         <PeakCard label="Baseline" peakMw={baseline.peakMw} risk={baseline.risk} />
-        <div className="flex items-center justify-center text-slate-600 sm:px-2">
-          <TrendingDown className="h-6 w-6" />
+        <div className="flex items-center justify-center text-ps-text-muted sm:px-2">
+          <ArrowRight className="h-5 w-5" />
         </div>
         <PeakCard label="Simulated" peakMw={scenario.peakMw} risk={scenario.risk} />
       </div>
 
-      <div className="mt-4 flex flex-col items-center justify-center gap-1 rounded-md border border-slate-800 bg-slate-900/40 p-3 text-center">
-        <p className="text-[11px] font-medium uppercase tracking-wide text-slate-500">
+      <div className="mt-4 flex flex-col items-center justify-center gap-1 rounded-lg border border-ps-border bg-ps-background p-3 text-center">
+        <p className="text-xs font-medium text-ps-text-muted">
           Peak reduction
         </p>
-        <p className="text-xl font-semibold text-emerald-400">
+        <p className="text-xl font-semibold text-ps-success">
           {reductionMw} MW
-          <span className="ml-2 text-sm font-normal text-slate-400">({reductionPct}%)</span>
+          <span className="ml-2 text-sm font-normal text-ps-text-secondary">({reductionPct}%)</span>
         </p>
       </div>
 
       {scenario.peakAvoided && (
-        <div className="mt-4 flex items-center justify-center gap-2 rounded-md border border-emerald-500/40 bg-emerald-500/15 px-4 py-3 text-emerald-400">
+        <div className="mt-4 flex items-center justify-center gap-2 rounded-lg border border-ps-success bg-ps-success-soft px-4 py-3 text-ps-success">
           <CheckCircle2 className="h-5 w-5" />
-          <span className="text-sm font-bold tracking-wide">PEAK AVOIDED</span>
+          <span className="text-sm font-semibold">Peak avoided</span>
         </div>
       )}
 
-      <p className="mt-3 text-center text-[11px] text-slate-600">
-        {isLive
-          ? "Demand-response scenario estimate — not a validated physical grid simulation."
-          : "Prototype scenario estimate — not a validated grid response."}
+      <p className="mt-3 text-center text-xs text-ps-text-muted">
+        Demand-response scenario estimate — not a validated physical grid simulation.
       </p>
     </div>
   );

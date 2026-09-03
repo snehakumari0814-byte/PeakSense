@@ -53,6 +53,10 @@ class ForecastInputsResponse(BaseModel):
     locality_id: str = Field(description="Locality slug identifier")
     locality_name: str = Field(description="Locality display name")
     horizon: str = Field(description="Forecast horizon used")
+    date: str = Field(
+        default="",
+        description="Calendar date (YYYY-MM-DD, Asia/Kolkata) these input features correspond to",
+    )
     peak_hour: int = Field(
         description="Hour (0–23) of the predicted peak step within the horizon"
     )

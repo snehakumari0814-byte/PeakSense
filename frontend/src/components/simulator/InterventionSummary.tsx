@@ -1,38 +1,25 @@
 import type { InterventionBreakdownItem } from "@/types/simulator";
-import DemoDataBadge from "@/components/DemoDataBadge";
 
 export default function InterventionSummary({
   breakdown,
   totalReductionMw,
-  isDemoData,
 }: {
   breakdown: InterventionBreakdownItem[];
   totalReductionMw: number;
   isDemoData: boolean;
 }) {
-  const isLive = !isDemoData;
-
   return (
-    <div className="rounded-lg border border-slate-800 bg-slate-900/50 p-4">
-      <div className="mb-3 flex items-center justify-between">
-        <h2 className="text-sm font-semibold uppercase tracking-wide text-white">
-          Intervention Summary
-        </h2>
-        {isLive ? (
-          <DemoDataBadge variant="live" label="Model · Live" />
-        ) : (
-          <DemoDataBadge variant="fallback" label="Demo Fallback" />
-        )}
-      </div>
+    <div className="rounded-xl border border-ps-border bg-ps-card p-4 shadow-sm">
+      <h2 className="mb-3 text-sm font-semibold text-ps-text-primary">Intervention summary</h2>
 
       <div className="flex flex-col gap-1.5">
         {breakdown.map((item) => (
           <div
             key={item.key}
-            className="flex items-center justify-between rounded-md border border-slate-800 bg-slate-900/40 px-3 py-2 text-xs"
+            className="flex items-center justify-between rounded-md border border-ps-border bg-ps-background px-3 py-2 text-xs"
           >
-            <span className="text-slate-300">{item.label}</span>
-            <span className="font-medium text-slate-200">
+            <span className="text-ps-text-secondary">{item.label}</span>
+            <span className="font-medium text-ps-text-primary">
               {item.reductionMw > 0 ? "-" : ""}
               {item.reductionMw} MW
             </span>
@@ -40,20 +27,19 @@ export default function InterventionSummary({
         ))}
       </div>
 
-      <div className="mt-3 flex items-center justify-between border-t border-slate-800 pt-3">
-        <span className="text-xs font-medium uppercase tracking-wide text-slate-500">
+      <div className="mt-3 flex items-center justify-between border-t border-ps-border pt-3">
+        <span className="text-xs font-medium text-ps-text-muted">
           Total estimated reduction
         </span>
-        <span className="text-sm font-semibold text-emerald-400">
+        <span className="text-sm font-semibold text-ps-success">
           {totalReductionMw > 0 ? "-" : ""}
           {totalReductionMw} MW
         </span>
       </div>
 
-      <p className="mt-3 text-[11px] leading-relaxed text-slate-600">
-        {isLive
-          ? "Reduction values are backend-calculated scenario estimates using documented demand-response coefficients — not measured or validated load reductions."
-          : "All values are prototype estimates, not measured or validated load reductions."}
+      <p className="mt-3 text-xs leading-relaxed text-ps-text-muted">
+        Reduction values are calculated scenario estimates using documented demand-response
+        coefficients — not measured or validated load reductions.
       </p>
     </div>
   );

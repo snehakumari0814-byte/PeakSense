@@ -4,16 +4,16 @@ import { ArrowUp, ArrowDown } from "lucide-react";
 import type { FeatureDriver } from "@/types/forecast";
 
 const CATEGORY_COLORS: Record<string, string> = {
-  lag: "#60a5fa",      // blue
-  rolling: "#818cf8",  // indigo
-  temporal: "#a78bfa", // violet
-  weather: "#fb923c",  // orange
-  solar: "#facc15",    // yellow
-  other: "#94a3b8",    // slate
+  lag: "#2563eb",
+  rolling: "#7c3aed",
+  temporal: "#0891b2",
+  weather: "#d97706",
+  solar: "#ca8a04",
+  other: "#64748b",
 };
 
-const INCREASE_COLOR = "#f87171"; // red — pushes demand up
-const DECREASE_COLOR = "#34d399"; // green — pushes demand down
+const INCREASE_COLOR = "#dc2626"; // pushes demand up
+const DECREASE_COLOR = "#16a34a"; // reduces demand
 
 /**
  * Horizontal bar chart of SHAP feature contributions.
@@ -37,9 +37,9 @@ export default function ExplanationDrivers({
 
   return (
     <div className="mt-3 space-y-2 pl-11">
-      <p className="mb-3 text-[11px] font-medium uppercase tracking-wide text-slate-500">
-        SHAP Feature Contributions
-        <span className="ml-1 font-normal normal-case text-slate-600">
+      <p className="mb-3 text-xs font-medium text-ps-text-muted">
+        Feature contributions
+        <span className="ml-1 font-normal text-ps-text-muted">
           — bulk Mumbai MW (model baseline: {baseValueMw.toFixed(0)} MW)
         </span>
       </p>
@@ -53,32 +53,31 @@ export default function ExplanationDrivers({
         return (
           <div key={d.feature} className="group">
             <div className="mb-1 flex items-center justify-between gap-2">
-              <div className="flex items-center gap-1.5 min-w-0">
-                {/* Category dot */}
+              <div className="flex min-w-0 items-center gap-1.5">
                 <span
                   className="h-2 w-2 shrink-0 rounded-full"
                   style={{ backgroundColor: catColor }}
                   title={d.category}
                 />
-                <span className="truncate text-[11px] text-slate-300" title={d.label}>
+                <span className="truncate text-xs text-ps-text-secondary" title={d.label}>
                   {d.label}
                 </span>
               </div>
               <div className="flex shrink-0 items-center gap-1">
                 {d.direction === "increase" ? (
-                  <ArrowUp className="h-3 w-3 text-red-400" />
+                  <ArrowUp className="h-3 w-3" style={{ color: INCREASE_COLOR }} />
                 ) : (
-                  <ArrowDown className="h-3 w-3 text-emerald-400" />
+                  <ArrowDown className="h-3 w-3" style={{ color: DECREASE_COLOR }} />
                 )}
                 <span
-                  className="text-[11px] font-mono font-medium tabular-nums"
+                  className="text-xs font-medium tabular-nums"
                   style={{ color: barColor }}
                 >
                   {sign}{d.shapValueMw.toFixed(1)} MW
                 </span>
               </div>
             </div>
-            <div className="h-1.5 w-full overflow-hidden rounded-full bg-slate-800/80">
+            <div className="h-1.5 w-full overflow-hidden rounded-full bg-ps-border">
               <div
                 className="h-full rounded-full transition-all duration-500"
                 style={{ width: `${barPct}%`, backgroundColor: barColor }}
@@ -88,14 +87,13 @@ export default function ExplanationDrivers({
         );
       })}
 
-      {/* Legend */}
       <div className="flex items-center gap-4 pt-1">
-        <span className="flex items-center gap-1 text-[10px] text-slate-600">
-          <span className="h-2 w-2 rounded-sm bg-red-400/70" />
+        <span className="flex items-center gap-1 text-[11px] text-ps-text-muted">
+          <span className="h-2 w-2 rounded-sm" style={{ backgroundColor: INCREASE_COLOR }} />
           Pushes demand higher
         </span>
-        <span className="flex items-center gap-1 text-[10px] text-slate-600">
-          <span className="h-2 w-2 rounded-sm bg-emerald-400/70" />
+        <span className="flex items-center gap-1 text-[11px] text-ps-text-muted">
+          <span className="h-2 w-2 rounded-sm" style={{ backgroundColor: DECREASE_COLOR }} />
           Pushes demand lower
         </span>
       </div>

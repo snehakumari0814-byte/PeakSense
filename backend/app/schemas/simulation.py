@@ -10,7 +10,7 @@ load-flow calculations, or validated distribution network behaviour.
 All intervention coefficients are documented transparent assumptions.
 """
 
-from typing import List, Literal
+from typing import List, Literal, Optional
 from pydantic import BaseModel, Field, model_validator
 
 from app.schemas.forecast import RiskLevel
@@ -34,6 +34,13 @@ class SimulationRequest(BaseModel):
     horizon: Literal["15min", "1h", "24h"] = Field(
         default="1h",
         description="Forecast horizon whose peak is used as the simulation baseline"
+    )
+    date: Optional[str] = Field(
+        default=None,
+        description=(
+            "Calendar date (YYYY-MM-DD, Asia/Kolkata) whose forecast is used as the "
+            "simulation baseline. Defaults to today's backend reference date if omitted."
+        ),
     )
     cooling_shift: float = Field(
         default=0.0,
@@ -141,6 +148,7 @@ class SimulationResponse(BaseModel):
     locality_id: str = Field(description="Locality slug identifier")
     locality_name: str = Field(description="Locality display name")
     horizon: str = Field(description="Forecast horizon used for baseline")
+    date: str = Field(description="Calendar date (YYYY-MM-DD, Asia/Kolkata) the baseline forecast was generated for")
 
     # Baseline (from real ForecastEngine)
     baseline_peak_mw: float = Field(description="Forecast baseline peak demand in MW")

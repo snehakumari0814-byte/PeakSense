@@ -123,6 +123,7 @@ export function simulateScenario(
 
   return {
     localityId: locality.id,
+    date: forecast.date,
     baseline: {
       peakMw: baselinePeakMw,
       peakTime: summary.peakTime,

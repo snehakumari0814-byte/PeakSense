@@ -182,130 +182,64 @@ class ExplanationEngine:
             self._explainer = None
 
     def _build_feature_vector(
-        self, locality_id: str, horizon: str
+        self, locality_id: str, horizon: str, date: Optional[str] = None
     ) -> Tuple[Optional[pd.DataFrame], Optional[Dict[str, float]]]:
         """
-        Build the exact feature vector for the peak prediction point.
+        Build the exact feature vector for the peak prediction point of the
+        requested date's forecast.
 
-        Mirrors the logic in ForecastEngine._generate_mumbai_raw_forecasts()
-        so that SHAP values correspond to the actual forecast that was served.
-        Returns (feature_df, raw_feature_dict) or (None, None) on failure.
+        Reuses ForecastEngine.get_bulk_series_for_date() — the same
+        date-resolution logic (historical backtest / current / bounded
+        future extrapolation) that backs GET /api/forecast — so SHAP values
+        correspond exactly to the forecast actually served for that date.
+
+        Raises ValueError for a malformed date string, and
+        DateUnavailableError for a date this backend cannot genuinely serve
+        (both propagate to the router as 400/404, matching /api/forecast).
+        Returns (None, None) only when the model/history/SHAP explainer
+        itself is unavailable — a separate, genuine "explanation not
+        computable" condition handled by falling back, never by fabricating
+        values for an unsupported date.
         """
         engine = self._engine
         if engine.model is None or engine.history_df is None:
             return None, None
 
-        feature_columns = engine.feature_columns
-        history = engine.history_df.copy()
-        recent_demands = history["demand_mw"].astype(float).tolist()
+        target_date = engine._parse_date_param(date)
+        bulk_points, _mode = engine.get_bulk_series_for_date(target_date)
 
-        observation_hours = [3, 10, 16, 20]
-        obs_encoded_map = {3: 0, 10: 1, 16: 2, 20: 3}
-
-        now = datetime.now().replace(second=0, microsecond=0)
-
-        # Determine how many steps ahead the peak occurs within the horizon
-        if horizon in ("15min", "15m"):
-            total_steps = 8
-        elif horizon in ("1h", "1hour"):
-            total_steps = 12
-        else:  # 24h
-            total_steps = 12  # bulk model always runs 12 steps
-
-        # Simulate all steps to find the peak point (matching ForecastEngine logic)
-        curr_dt = now
-        all_results = []
-        demands_sim = list(recent_demands)
-
-        for _ in range(total_steps):
-            next_slots = [h for h in observation_hours if h > curr_dt.hour]
-            if next_slots:
-                next_hour = next_slots[0]
-                target_dt = curr_dt.replace(hour=next_hour, minute=0, second=0, microsecond=0)
-            else:
-                next_hour = observation_hours[0]
-                target_dt = (curr_dt + timedelta(days=1)).replace(
-                    hour=next_hour, minute=0, second=0, microsecond=0
-                )
-
-            obs_type_enc = obs_encoded_map.get(next_hour, 1)
-            hour = target_dt.hour
-            day_of_week = target_dt.weekday()
-            day_of_month = target_dt.day
-            month = target_dt.month
-            is_weekend = int(day_of_week >= 5)
-            is_holiday = 0
-
-            lag_1 = demands_sim[-1]
-            lag_2 = demands_sim[-2] if len(demands_sim) >= 2 else lag_1
-            lag_4 = demands_sim[-4] if len(demands_sim) >= 4 else lag_1
-            lag_8 = demands_sim[-8] if len(demands_sim) >= 8 else lag_1
-            lag_28 = demands_sim[-28] if len(demands_sim) >= 28 else lag_1
-
-            rolling_mean_4 = float(np.mean(demands_sim[-4:]))
-            rolling_mean_7 = float(np.mean(demands_sim[-7:]))
-            rolling_max_4 = float(np.max(demands_sim[-4:]))
-            rolling_min_4 = float(np.min(demands_sim[-4:]))
-            rolling_std_7 = float(np.std(demands_sim[-7:]))
-
-            temp_c = 28.0 + 5.0 * np.sin(np.pi * (hour - 6) / 12) if 6 <= hour <= 18 else 26.5
-            rh_pct = 78.0
-            cooling_idx = max(0.0, temp_c - 24.0)
-            heat_idx = temp_c + 2.0
-            solar_irr = max(0.0, 700.0 * np.sin(np.pi * (hour - 6) / 12)) if 6 <= hour <= 18 else 0.0
-            solar_ramp = 0.0
-
-            feat_dict: Dict[str, float] = {
-                "observation_type_encoded": float(obs_type_enc),
-                "hour": float(hour),
-                "day_of_week": float(day_of_week),
-                "day_of_month": float(day_of_month),
-                "month": float(month),
-                "is_weekend": float(is_weekend),
-                "is_holiday": float(is_holiday),
-                "lag_1": float(lag_1),
-                "lag_2": float(lag_2),
-                "lag_4": float(lag_4),
-                "lag_8": float(lag_8),
-                "lag_28": float(lag_28),
-                "rolling_mean_4": rolling_mean_4,
-                "rolling_mean_7": rolling_mean_7,
-                "rolling_max_4": rolling_max_4,
-                "rolling_min_4": rolling_min_4,
-                "rolling_std_7": rolling_std_7,
-                "temperature_c": float(temp_c),
-                "relative_humidity_percent": float(rh_pct),
-                "cooling_degree_index": float(cooling_idx),
-                "heat_index": float(heat_idx),
-                "solar_irradiance": float(solar_irr),
-                "solar_ramp": float(solar_ramp),
-            }
-
-            feat_df = pd.DataFrame([feat_dict])[feature_columns]
-            pred_mw = float(engine.model.predict(feat_df)[0])
-
-            all_results.append((target_dt, feat_dict, pred_mw))
-            demands_sim.append(pred_mw)
-            curr_dt = target_dt
-
-        if not all_results:
+        if not bulk_points:
             return None, None
 
-        # Peak = step with highest prediction
-        peak_step = max(all_results, key=lambda x: x[2])
-        _, peak_feat_dict, _ = peak_step
+        # Restrict to points that fall on the requested date's own horizon
+        # window so the explained "peak" matches what /api/forecast serves
+        # for that date, not some other day's step that happened to be
+        # generated as interpolation context.
+        day_points = [p for p in bulk_points if p["timestamp"].date() == target_date]
+        candidates = day_points if day_points else bulk_points
 
+        peak_point = max(candidates, key=lambda p: p["predicted_mw"])
+        peak_feat_dict = peak_point.get("feat_dict")
+        if peak_feat_dict is None:
+            return None, None
+
+        feature_columns = engine.feature_columns
         feat_df = pd.DataFrame([peak_feat_dict])[feature_columns]
         return feat_df, peak_feat_dict
 
     def get_explanation(
-        self, locality_id: str, horizon: str, top_n: int = 8
+        self, locality_id: str, horizon: str, top_n: int = 8, date: Optional[str] = None
     ) -> ExplanationResponse:
         """
-        Compute SHAP explanation for the peak-point forecast for a locality.
+        Compute SHAP explanation for the peak-point forecast for a locality,
+        for the requested calendar date (defaults to today).
 
         Returns ExplanationResponse with real SHAP contributions.
         Falls back to a feature-importance-based response if SHAP is unavailable.
+
+        A malformed or genuinely unsupported `date` propagates as ValueError /
+        DateUnavailableError, exactly like GET /api/forecast — this method
+        never silently substitutes another date's explanation.
         """
         locality = LOCALITIES_BY_ID.get(locality_id)
         if locality is None:
@@ -318,11 +252,13 @@ class ExplanationEngine:
         elif horizon in ("1h", "1hour"):
             norm = "1h"
 
+        resolved_date = self._engine._parse_date_param(date).isoformat()
+
         # Build peak-point feature vector
-        feat_df, feat_dict = self._build_feature_vector(locality_id, norm)
+        feat_df, feat_dict = self._build_feature_vector(locality_id, norm, date)
 
         if feat_df is None or feat_dict is None or self._explainer is None:
-            return self._fallback_explanation(locality_id, norm)
+            return self._fallback_explanation(locality_id, norm, resolved_date)
 
         # Predict (bulk Mumbai MW)
         engine = self._engine
@@ -365,9 +301,9 @@ class ExplanationEngine:
         contributions.sort(key=lambda c: -abs(c.shap_value_mw))
         top_drivers = contributions[:top_n]
 
-        # Build deterministic peak time from the 24h forecast for context
+        # Build deterministic peak time from the same-date forecast for context
         try:
-            forecast = engine.get_forecast(locality_id=locality_id, horizon=horizon)
+            forecast = engine.get_forecast(locality_id=locality_id, horizon=horizon, date=date)
             peak_time = forecast.peak.peak_time
             threshold_mw = forecast.peak.threshold_mw
         except Exception:
@@ -386,6 +322,7 @@ class ExplanationEngine:
             locality_id=locality.id,
             locality_name=locality.name,
             horizon=norm,
+            date=resolved_date,
             prediction_mw=round(prediction_mw, 2),
             locality_prediction_mw=locality_pred_mw,
             base_value_mw=round(base_value_mw, 2),
@@ -395,7 +332,9 @@ class ExplanationEngine:
             is_demo_fallback=False,
         )
 
-    def _fallback_explanation(self, locality_id: str, horizon: str) -> ExplanationResponse:
+    def _fallback_explanation(
+        self, locality_id: str, horizon: str, date: Optional[str] = None
+    ) -> ExplanationResponse:
         """
         Feature-importance-based fallback when SHAP is unavailable.
         Clearly labelled as fallback — never presented as SHAP.
@@ -427,6 +366,7 @@ class ExplanationEngine:
             locality_id=locality_id,
             locality_name=locality.name if locality else locality_id,
             horizon=horizon,
+            date=date or self._engine.get_reference_date().isoformat(),
             prediction_mw=0.0,
             locality_prediction_mw=0.0,
             base_value_mw=0.0,
@@ -440,7 +380,7 @@ class ExplanationEngine:
         )
 
     def get_forecast_inputs(
-        self, locality_id: str, horizon: str
+        self, locality_id: str, horizon: str, date: Optional[str] = None
     ) -> ForecastInputsResponse:
         """
         Return the actual model input feature values at the peak-point prediction.
@@ -468,7 +408,8 @@ class ExplanationEngine:
         elif horizon in ("1h", "1hour"):
             norm = "1h"
 
-        feat_df, feat_dict = self._build_feature_vector(locality_id, norm)
+        resolved_date = self._engine._parse_date_param(date).isoformat()
+        feat_df, feat_dict = self._build_feature_vector(locality_id, norm, date)
 
         # If model/history unavailable, return a clearly-labelled fallback
         if feat_df is None or feat_dict is None:
@@ -476,6 +417,7 @@ class ExplanationEngine:
                 locality_id=locality_id,
                 locality_name=locality.name,
                 horizon=norm,
+                date=resolved_date,
                 peak_hour=0,
                 features=[],
                 is_demo_fallback=True,
@@ -591,6 +533,7 @@ class ExplanationEngine:
             locality_id=locality_id,
             locality_name=locality.name,
             horizon=norm,
+            date=resolved_date,
             peak_hour=peak_hour,
             features=features,
             is_demo_fallback=False,

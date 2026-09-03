@@ -3,6 +3,23 @@
 :root {
   --background: #ffffff;
   --foreground: #171717;
+
+  /* PeakSense light design system — used by the Forecast, Peak Prevention,
+     and What-If Simulator pages (and any shared components they render). */
+  --ps-background: #f7f9fc;
+  --ps-card: #ffffff;
+  --ps-border: #e2e8f0;
+  --ps-text-primary: #0f172a;
+  --ps-text-secondary: #64748b;
+  --ps-text-muted: #94a3b8;
+  --ps-accent: #2563eb;
+  --ps-accent-soft: #e8f0fe;
+  --ps-success: #16a34a;
+  --ps-success-soft: #e9f7ef;
+  --ps-warning: #d97706;
+  --ps-warning-soft: #fdf2e3;
+  --ps-critical: #dc2626;
+  --ps-critical-soft: #fbe9e9;
 }
 
 @theme inline {
@@ -10,6 +27,21 @@
   --color-foreground: var(--foreground);
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
+
+  --color-ps-background: var(--ps-background);
+  --color-ps-card: var(--ps-card);
+  --color-ps-border: var(--ps-border);
+  --color-ps-text-primary: var(--ps-text-primary);
+  --color-ps-text-secondary: var(--ps-text-secondary);
+  --color-ps-text-muted: var(--ps-text-muted);
+  --color-ps-accent: var(--ps-accent);
+  --color-ps-accent-soft: var(--ps-accent-soft);
+  --color-ps-success: var(--ps-success);
+  --color-ps-success-soft: var(--ps-success-soft);
+  --color-ps-warning: var(--ps-warning);
+  --color-ps-warning-soft: var(--ps-warning-soft);
+  --color-ps-critical: var(--ps-critical);
+  --color-ps-critical-soft: var(--ps-critical-soft);
 }
 
 @media (prefers-color-scheme: dark) {

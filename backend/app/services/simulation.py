@@ -152,7 +152,7 @@ class SimulationService:
 
         # ── Step 1: Get real forecast baseline summary ─────────────────────
         engine = ForecastEngine.get_instance()
-        forecast = engine.get_forecast(locality_id=req.locality_id, horizon=req.horizon)
+        forecast = engine.get_forecast(locality_id=req.locality_id, horizon=req.horizon, date=req.date)
 
         baseline_peak_mw = float(forecast.peak.peak_mw)
         baseline_peak_time = str(forecast.peak.peak_time)
@@ -227,6 +227,7 @@ class SimulationService:
         series_response = engine.get_forecast_series(
             locality_id=req.locality_id,
             horizon=req.horizon,
+            date=req.date,
         )
 
         reduction_fraction = (
@@ -270,6 +271,7 @@ class SimulationService:
             locality_id=locality.id,
             locality_name=locality.name,
             horizon=req.horizon,
+            date=forecast.date,
             baseline_peak_mw=baseline_peak_mw,
             baseline_peak_time=baseline_peak_time,
             baseline_risk=baseline_risk,

@@ -13,11 +13,12 @@ import {
   Legend,
 } from "recharts";
 import type { SimulationResult } from "@/types/simulator";
-import DemoDataBadge from "@/components/DemoDataBadge";
 
-const BASELINE_COLOR = "#60a5fa";
-const SIMULATED_COLOR = "#2dd4bf";
-const THRESHOLD_COLOR = "#f87171";
+const BASELINE_COLOR = "#2563eb";
+const SIMULATED_COLOR = "#16a34a";
+const THRESHOLD_COLOR = "#dc2626";
+const GRID_COLOR = "#e2e8f0";
+const AXIS_COLOR = "#94a3b8";
 
 function ChartTooltip({
   active,
@@ -30,8 +31,8 @@ function ChartTooltip({
 }) {
   if (!active || !payload || payload.length === 0) return null;
   return (
-    <div className="rounded-md border border-slate-700 bg-slate-950/95 px-3 py-2 text-xs shadow-lg">
-      <p className="mb-1 font-medium text-slate-300">{label}</p>
+    <div className="rounded-md border border-ps-border bg-ps-card px-3 py-2 text-xs shadow-md">
+      <p className="mb-1 font-medium text-ps-text-primary">{label}</p>
       {payload
         .filter((p) => p.value !== null && p.value !== undefined && !Number.isNaN(p.value))
         .map((p) => (
@@ -44,7 +45,6 @@ function ChartTooltip({
 }
 
 export default function ScenarioChart({ result }: { result: SimulationResult }) {
-  const isLive = !result.isDemoData;
   const chartData = result.series.map((p) => ({
     time: p.time,
     timestamp: p.timestamp,
@@ -62,45 +62,38 @@ export default function ScenarioChart({ result }: { result: SimulationResult }) 
   );
 
   return (
-    <div className="rounded-lg border border-slate-800 bg-slate-900/50 p-4">
-      <div className="mb-3 flex items-center justify-between">
-        <h2 className="text-sm font-semibold text-white">Scenario Chart</h2>
-        {isLive ? (
-          <DemoDataBadge variant="live" label="Model · Live" />
-        ) : (
-          <DemoDataBadge variant="fallback" label="Demo Fallback" />
-        )}
-      </div>
+    <div className="rounded-xl border border-ps-border bg-ps-card p-4 shadow-sm">
+      <h2 className="mb-3 text-sm font-semibold text-ps-text-primary">Scenario chart</h2>
 
       <div className="h-80 w-full">
         <ResponsiveContainer width="100%" height="100%">
           <ComposedChart data={chartData} margin={{ top: 10, right: 16, bottom: 0, left: 0 }}>
-            <CartesianGrid stroke="#1e293b" strokeDasharray="3 3" vertical={false} />
+            <CartesianGrid stroke={GRID_COLOR} strokeDasharray="3 3" vertical={false} />
             <XAxis
               dataKey="time"
-              stroke="#475569"
+              stroke={AXIS_COLOR}
               tick={{ fill: "#64748b", fontSize: 11 }}
               tickLine={false}
-              axisLine={{ stroke: "#1e293b" }}
+              axisLine={{ stroke: GRID_COLOR }}
               minTickGap={24}
-              label={{ value: "Time", position: "insideBottom", offset: -2, fill: "#475569", fontSize: 11 }}
+              label={{ value: "Time", position: "insideBottom", offset: -2, fill: AXIS_COLOR, fontSize: 11 }}
             />
             <YAxis
-              stroke="#475569"
+              stroke={AXIS_COLOR}
               tick={{ fill: "#64748b", fontSize: 11 }}
               tickLine={false}
-              axisLine={{ stroke: "#1e293b" }}
+              axisLine={{ stroke: GRID_COLOR }}
               width={44}
-              label={{ value: "MW", angle: -90, position: "insideLeft", fill: "#475569", fontSize: 11 }}
+              label={{ value: "MW", angle: -90, position: "insideLeft", fill: AXIS_COLOR, fontSize: 11 }}
             />
             <Tooltip content={<ChartTooltip />} />
-            <Legend wrapperStyle={{ fontSize: 11, color: "#94a3b8" }} iconSize={8} />
+            <Legend wrapperStyle={{ fontSize: 11, color: "#64748b" }} iconSize={8} />
 
             <ReferenceLine
               y={result.baseline.thresholdMw}
               stroke={THRESHOLD_COLOR}
               strokeDasharray="4 4"
-              strokeOpacity={0.7}
+              strokeOpacity={0.8}
               label={{
                 value: `Threshold ${result.baseline.thresholdMw} MW`,
                 position: "right",
@@ -135,7 +128,7 @@ export default function ScenarioChart({ result }: { result: SimulationResult }) 
                 y={baselinePeakPoint.Baseline}
                 r={5}
                 fill={BASELINE_COLOR}
-                stroke="#0f172a"
+                stroke="#ffffff"
                 strokeWidth={2}
               />
             )}
@@ -145,7 +138,7 @@ export default function ScenarioChart({ result }: { result: SimulationResult }) 
                 y={scenarioPeakPoint.Simulated}
                 r={5}
                 fill={SIMULATED_COLOR}
-                stroke="#0f172a"
+                stroke="#ffffff"
                 strokeWidth={2}
               />
             )}

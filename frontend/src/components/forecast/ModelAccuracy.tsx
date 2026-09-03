@@ -1,6 +1,5 @@
 import type { ModelAccuracy as ModelAccuracyData } from "@/types/forecast";
 import { HORIZON_LABELS, FORECAST_HORIZONS } from "@/types/forecast";
-import DemoDataBadge from "@/components/DemoDataBadge";
 
 export default function ModelAccuracy({
   accuracy,
@@ -10,39 +9,33 @@ export default function ModelAccuracy({
   isLive?: boolean;
 }) {
   return (
-    <div className="rounded-lg border border-slate-800 bg-slate-900/50 p-4">
-      <div className="mb-3 flex items-center justify-between">
-        <h2 className="text-sm font-semibold text-white">Model Accuracy</h2>
-        <DemoDataBadge
-          variant={isLive ? "live" : "fallback"}
-          label={isLive ? "Live" : "Fallback"}
-        />
-      </div>
+    <div className="rounded-xl border border-ps-border bg-ps-card p-4 shadow-sm">
+      <h2 className="mb-3 text-sm font-semibold text-ps-text-primary">Model accuracy</h2>
 
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
         {FORECAST_HORIZONS.map((h) => {
           const metric = accuracy[h];
           return (
-            <div key={h} className="rounded-md border border-slate-800 bg-slate-900/40 p-3">
-              <p className="mb-2 text-[11px] font-medium uppercase tracking-wide text-slate-500">
+            <div key={h} className="rounded-md border border-ps-border bg-ps-background p-3">
+              <p className="mb-2 text-xs font-medium text-ps-text-muted">
                 {HORIZON_LABELS[h]}
               </p>
               <dl className="space-y-1 text-xs">
                 <div className="flex items-center justify-between">
-                  <dt className="text-slate-500">MAE</dt>
-                  <dd className="font-medium text-white">
+                  <dt className="text-ps-text-secondary">MAE</dt>
+                  <dd className="font-medium text-ps-text-primary">
                     {metric.maeMw > 0 ? `${metric.maeMw.toFixed(1)} MW` : "N/A"}
                   </dd>
                 </div>
                 <div className="flex items-center justify-between">
-                  <dt className="text-slate-500">RMSE</dt>
-                  <dd className="font-medium text-white">
+                  <dt className="text-ps-text-secondary">RMSE</dt>
+                  <dd className="font-medium text-ps-text-primary">
                     {metric.rmseMw > 0 ? `${metric.rmseMw.toFixed(1)} MW` : "N/A"}
                   </dd>
                 </div>
                 <div className="flex items-center justify-between">
-                  <dt className="text-slate-500">MAPE</dt>
-                  <dd className="font-medium text-white">
+                  <dt className="text-ps-text-secondary">MAPE</dt>
+                  <dd className="font-medium text-ps-text-primary">
                     {metric.mapePct > 0 ? `${metric.mapePct.toFixed(2)}%` : "N/A"}
                   </dd>
                 </div>
@@ -52,20 +45,10 @@ export default function ModelAccuracy({
         })}
       </div>
 
-      <p className="mt-3 text-[11px] leading-relaxed text-slate-600">
-        {isLive ? (
-          <>
-            Real XGBoost model metrics — city-wide Mumbai bulk demand (MW).
-            Metrics are measured against held-out validation data.{" "}
-            <code className="text-slate-500">GET /api/model-metrics</code>
-          </>
-        ) : (
-          <>
-            Demo accuracy figures only — backend offline. Values will reflect real model
-            metrics once the forecasting backend is reachable.{" "}
-            <code className="text-slate-500">GET /api/model-metrics</code>
-          </>
-        )}
+      <p className="mt-3 text-xs leading-relaxed text-ps-text-muted">
+        {isLive
+          ? "Measured against held-out validation data, city-wide Mumbai bulk demand (MW)."
+          : "Backend offline — figures shown are local placeholders, not measured accuracy."}
       </p>
     </div>
   );

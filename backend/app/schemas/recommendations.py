@@ -51,6 +51,7 @@ class RecommendationsResponse(BaseModel):
     locality_id: str = Field(description="Locality slug identifier")
     locality_name: str = Field(description="Locality display name")
     horizon: str = Field(description="Forecast horizon used")
+    date: str = Field(description="Calendar date (YYYY-MM-DD, Asia/Kolkata) the underlying forecast was generated for")
     recommendations: List[RecommendationItem] = Field(
         description="Ranked candidate interventions, highest estimated impact first"
     )
